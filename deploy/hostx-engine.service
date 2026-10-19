@@ -1,0 +1,18 @@
+# /etc/systemd/system/hostx-engine.service  (adjust paths/user)
+[Unit]
+Description=HostX engine
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/opt/hostx
+ExecStart=/usr/bin/node dist/index.js
+Restart=always
+RestartSec=3
+User=hostx
+Group=docker
+Environment=NODE_ENV=production
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

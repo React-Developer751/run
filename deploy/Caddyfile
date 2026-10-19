@@ -1,0 +1,15 @@
+# Wildcard TLS needs a DNS-01 capable Caddy build (e.g. caddy-dns/cloudflare). Replace yourdomain.com.
+app.yourdomain.com {
+	reverse_proxy 127.0.0.1:3000
+}
+
+api.yourdomain.com {
+	reverse_proxy 127.0.0.1:4000
+}
+
+*.yourdomain.com {
+	tls {
+		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
+	}
+	reverse_proxy 127.0.0.1:8080
+}

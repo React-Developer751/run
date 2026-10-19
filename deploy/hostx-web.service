@@ -1,0 +1,14 @@
+# /etc/systemd/system/hostx-web.service
+[Unit]
+Description=HostX dashboard
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/hostx/web
+ExecStart=/usr/bin/npm start
+Restart=always
+User=hostx
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target

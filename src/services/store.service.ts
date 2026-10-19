@@ -1,0 +1,352 @@
+import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
+import { config } from '../config/index.js';
+import { logger } from '../utils/logger.js';
+import { DeployLog } from './log.service.js';
+import { Vault } from './vault.service.js';
+
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped';
+export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
+export type ProjectKind = 'static' | 'node';
+export type RuntimeKind = 'docker' | 'process' | 'static';
+
+export type Role = 'admin' | 'user';
+
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+  passwordHash: string;
+  role: Role;
+  suspended: boolean;
+  /** Per-user override of the project limit. null = platform default. */
+  maxProjects: number | null;
+  lastLoginAt: string | null;
+  /** Tokens issued before this moment are rejected (set on password change/reset). */
+  passwordChangedAt: string | null;
+  createdAt: string;
+}
+
+/** Runtime-editable platform settings. null = fall back to the environment default. */
+export interface Settings {
+  allowSignup: boolean | null;
+  maxProjectsPerUser: number | null;
+}
+
+/** One refresh token. Rotated on every use; rows of one login share a familyId so theft can revoke them all. */
+export interface Session {
+  id: string;
+  familyId: string;
+  userId: string;
+  tokenHash: string;
+  createdAt: string;
+  expiresAt: string;
+  rotatedAt: string | null;
+  revokedAt: string | null;
+  ip: string;
+  userAgent: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  at: string;
+  actorId: string;
+  actorEmail: string;
+  action: string;
+  target: string;
+  detail: string;
+}
+
+export interface Project {
+  id: string;
+  userId: string;
+  name: string;
+  slug: string;
+  repoUrl: string;
+  branch: string | null;
+  rootDir: string;
+  kind: ProjectKind | null;
+  framework: string | null;
+  env: Record<string, string>;
+  /** User overrides. null = use what HostX detects. '' (build only) = explicitly no build step. */
+  kindPref: ProjectKind | null;
+  buildCommand: string | null;
+  startCommand: string | null;
+  outputDir: string | null;
+  /** Redeploy automatically when the repository gets a new commit. */
+  autoDeploy: boolean;
+  /** HMAC secret for the GitHub webhook of this project. */
+  webhookSecret: string;
+  status: ProjectStatus;
+  runtime: RuntimeKind | null;
+  port: number;
+  pid: number | null;
+  containerName: string | null;
+  currentDeploymentId: string | null;
+  commit: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Deployment {
+  id: string;
+  projectId: string;
+  status: DeploymentStatus;
+  trigger: 'create' | 'redeploy' | 'auto';
+  commit: string | null;
+  error: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+interface Database {
+  users: User[];
+  projects: Project[];
+  deployments: Deployment[];
+  settings: Settings;
+  audit: AuditEntry[];
+  sessions: Session[];
+}
+
+/** Small JSON-file database: in-memory reads, atomic serialized writes. No third-party packages. */
+export class Store {
+  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [] };
+  private static queue: Promise<void> = Promise.resolve();
+
+  static async init(): Promise<void> {
+    await fs.mkdir(config.dataDir, { recursive: true, mode: 0o700 });
+    await fs.chmod(config.dataDir, 0o700).catch(() => undefined);
+    try {
+      const parsed = JSON.parse(await fs.readFile(config.dbFile, 'utf8')) as Partial<Database>;
+      this.db = {
+        users: (parsed.users ?? []).map((u) => ({
+          ...u,
+          role: u.role ?? 'user',
+          suspended: u.suspended ?? false,
+          maxProjects: u.maxProjects ?? null,
+          lastLoginAt: u.lastLoginAt ?? null,
+          passwordChangedAt: u.passwordChangedAt ?? null,
+        })),
+        settings: { allowSignup: parsed.settings?.allowSignup ?? null, maxProjectsPerUser: parsed.settings?.maxProjectsPerUser ?? null },
+        audit: parsed.audit ?? [],
+        sessions: parsed.sessions ?? [],
+        projects: (parsed.projects ?? []).map((p) => ({
+          ...p,
+          kindPref: p.kindPref ?? null,
+          buildCommand: p.buildCommand ?? null,
+          startCommand: p.startCommand ?? null,
+          outputDir: p.outputDir ?? null,
+          autoDeploy: p.autoDeploy ?? true,
+          webhookSecret: p.webhookSecret ?? crypto.randomBytes(24).toString('hex'),
+        })),
+        deployments: parsed.deployments ?? [],
+      };
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    for (const p of this.db.projects) {
+      p.env = Object.fromEntries(Object.entries(p.env ?? {}).map(([k, v]) => [k, Vault.decrypt(v)]));
+      p.webhookSecret = Vault.decrypt(p.webhookSecret);
+    }
+    // Accounts created before roles existed: make sure somebody can administer the platform.
+    if (this.db.users.length > 0 && !this.db.users.some((u) => u.role === 'admin')) {
+      const oldest = [...this.db.users].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
+      if (oldest) {
+        oldest.role = 'admin';
+        logger.info(`No admin existed: promoted ${oldest.email}`);
+      }
+    }
+    await this.save(); // re-write once so legacy plaintext secrets get encrypted
+  }
+
+  private static save(): Promise<void> {
+    const onDisk = {
+      ...this.db,
+      projects: this.db.projects.map((p) => ({
+        ...p,
+        env: Object.fromEntries(Object.entries(p.env).map(([k, v]) => [k, Vault.encrypt(v)])),
+        webhookSecret: Vault.encrypt(p.webhookSecret),
+      })),
+    };
+    const snapshot = JSON.stringify(onDisk, null, 2);
+    this.queue = this.queue
+      .then(async () => {
+        const tmp = `${config.dbFile}.tmp`;
+        await fs.writeFile(tmp, snapshot, { mode: 0o600 });
+        await fs.rename(tmp, config.dbFile);
+      })
+      .catch((err) => logger.error('Failed to persist database', err));
+    return this.queue;
+  }
+
+  static newId(prefix: string): string {
+    return `${prefix}_${crypto.randomBytes(5).toString('hex')}`;
+  }
+
+  // ── users ──────────────────────────────────────────────
+  static getUserById(id: string): User | undefined {
+    return this.db.users.find((u) => u.id === id);
+  }
+
+  static getUserByEmail(email: string): User | undefined {
+    return this.db.users.find((u) => u.email === email);
+  }
+
+  static allUsers(): User[] {
+    return this.db.users;
+  }
+
+  static async updateUser(id: string, patch: Partial<User>): Promise<User> {
+    const user = this.getUserById(id);
+    if (!user) throw new Error(`User ${id} not found`);
+    Object.assign(user, patch);
+    await this.save();
+    return user;
+  }
+
+  static async deleteUser(id: string): Promise<void> {
+    this.db.users = this.db.users.filter((u) => u.id !== id);
+    await this.save();
+  }
+
+  // ── sessions (refresh tokens) ──────────────────────────
+  static getSession(id: string): Session | undefined {
+    return this.db.sessions.find((s) => s.id === id);
+  }
+
+  static findSessionByHash(hash: string): Session | undefined {
+    return this.db.sessions.find((s) => s.tokenHash === hash);
+  }
+
+  static async addSession(session: Session): Promise<void> {
+    const now = Date.now();
+    // Keep rotated rows 24h so a replayed (stolen) token is still recognised; drop everything older/expired.
+    this.db.sessions = this.db.sessions.filter(
+      (s) => new Date(s.expiresAt).getTime() > now && !(s.rotatedAt && now - new Date(s.rotatedAt).getTime() > 24 * 3600_000),
+    );
+    this.db.sessions.push(session);
+    await this.save();
+  }
+
+  static async updateSession(id: string, patch: Partial<Session>): Promise<void> {
+    const s = this.getSession(id);
+    if (s) Object.assign(s, patch);
+    await this.save();
+  }
+
+  static async revokeFamily(familyId: string): Promise<void> {
+    const at = new Date().toISOString();
+    for (const s of this.db.sessions) if (s.familyId === familyId && !s.revokedAt) s.revokedAt = at;
+    await this.save();
+  }
+
+  static async revokeUserSessions(userId: string): Promise<void> {
+    const at = new Date().toISOString();
+    for (const s of this.db.sessions) if (s.userId === userId && !s.revokedAt) s.revokedAt = at;
+    await this.save();
+  }
+
+  static settings(): Settings {
+    return this.db.settings;
+  }
+
+  static async updateSettings(patch: Partial<Settings>): Promise<Settings> {
+    Object.assign(this.db.settings, patch);
+    await this.save();
+    return this.db.settings;
+  }
+
+  static async addAudit(actor: User, action: string, target: string, detail = ''): Promise<void> {
+    this.db.audit.unshift({ id: this.newId('a'), at: new Date().toISOString(), actorId: actor.id, actorEmail: actor.email, action, target, detail });
+    if (this.db.audit.length > 1000) this.db.audit.length = 1000;
+    await this.save();
+  }
+
+  static auditLog(limit: number): AuditEntry[] {
+    return this.db.audit.slice(0, limit);
+  }
+
+  static async addUser(user: User): Promise<User> {
+    if (this.getUserByEmail(user.email)) throw new Error('EMAIL_TAKEN');
+    this.db.users.push(user);
+    await this.save();
+    return user;
+  }
+
+  // ── projects ───────────────────────────────────────────
+  static allProjects(): Project[] {
+    return this.db.projects;
+  }
+
+  static projectsOf(userId: string): Project[] {
+    return this.db.projects.filter((p) => p.userId === userId).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  static getProject(id: string): Project | undefined {
+    return this.db.projects.find((p) => p.id === id);
+  }
+
+  static getProjectBySlug(slug: string): Project | undefined {
+    return this.db.projects.find((p) => p.slug === slug);
+  }
+
+  static usedPorts(): Set<number> {
+    return new Set(this.db.projects.map((p) => p.port));
+  }
+
+  static async addProject(project: Project): Promise<Project> {
+    this.db.projects.push(project);
+    await this.save();
+    return project;
+  }
+
+  static async updateProject(id: string, patch: Partial<Project>): Promise<Project> {
+    const project = this.getProject(id);
+    if (!project) throw new Error(`Project ${id} not found`);
+    Object.assign(project, patch, { updatedAt: new Date().toISOString() });
+    await this.save();
+    return project;
+  }
+
+  static async deleteProject(id: string): Promise<void> {
+    for (const d of this.db.deployments.filter((x) => x.projectId === id)) await DeployLog.remove(d.id);
+    this.db.deployments = this.db.deployments.filter((d) => d.projectId !== id);
+    this.db.projects = this.db.projects.filter((p) => p.id !== id);
+    await this.save();
+  }
+
+  // ── deployments ────────────────────────────────────────
+  static getDeployment(id: string): Deployment | undefined {
+    return this.db.deployments.find((d) => d.id === id);
+  }
+
+  static deploymentsOf(projectId: string): Deployment[] {
+    return this.db.deployments
+      .filter((d) => d.projectId === projectId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  static allDeployments(): Deployment[] {
+    return this.db.deployments;
+  }
+
+  static async addDeployment(deployment: Deployment): Promise<Deployment> {
+    this.db.deployments.push(deployment);
+
+    const mine = this.deploymentsOf(deployment.projectId);
+    for (const old of mine.slice(config.limits.deploymentsKept)) {
+      await DeployLog.remove(old.id);
+      this.db.deployments = this.db.deployments.filter((d) => d.id !== old.id);
+    }
+    await this.save();
+    return deployment;
+  }
+
+  static async updateDeployment(id: string, patch: Partial<Deployment>): Promise<Deployment> {
+    const deployment = this.getDeployment(id);
+    if (!deployment) throw new Error(`Deployment ${id} not found`);
+    Object.assign(deployment, patch);
+    await this.save();
+    return deployment;
+  }
+}

@@ -1,0 +1,196 @@
+import { config, projectUrl } from '../config/index.js';
+import type { Ctx } from '../utils/http.js';
+import { HttpError } from '../utils/http.js';
+import { RateLimiter } from '../utils/rateLimit.js';
+import {
+  validateBranch,
+  validateCommand,
+  validateKind,
+  validateOutputDir,
+  validateEnv,
+  validateProjectName,
+  validateRepoUrl,
+  validateRootDir,
+} from '../utils/validator.js';
+import { AuthService } from '../services/auth.service.js';
+import { ClonerService } from '../services/cloner.service.js';
+import { DeployService } from '../services/deploy.service.js';
+import { DeployLog } from '../services/log.service.js';
+import { RunnerService } from '../services/runner.service.js';
+import { Store, type Deployment, type Project } from '../services/store.service.js';
+
+export const toPublicProject = (p: Project) => ({
+  id: p.id,
+  name: p.name,
+  slug: p.slug,
+  url: projectUrl(p.slug),
+  repoUrl: p.repoUrl,
+  branch: p.branch,
+  rootDir: p.rootDir,
+  config: { kind: p.kindPref, buildCommand: p.buildCommand, startCommand: p.startCommand, outputDir: p.outputDir },
+  kind: p.kind,
+  framework: p.framework,
+  env: p.env,
+  autoDeploy: p.autoDeploy,
+  webhook: { url: `${config.apiPublicUrl}/api/webhooks/github/${p.id}`, secret: p.webhookSecret },
+  status: p.status,
+  commit: p.commit,
+  currentDeploymentId: p.currentDeploymentId,
+  createdAt: p.createdAt,
+  updatedAt: p.updatedAt,
+});
+
+export const toPublicDeployment = (d: Deployment) => ({
+  id: d.id,
+  status: d.status,
+  trigger: d.trigger,
+  commit: d.commit,
+  error: d.error,
+  createdAt: d.createdAt,
+  finishedAt: d.finishedAt,
+});
+
+function ownedProject(ctx: Ctx): Project {
+  const user = AuthService.requireUser(ctx.user);
+  const project = Store.getProject(ctx.params.id ?? '');
+  // Same answer for "missing" and "someone else's" so ids cannot be probed.
+  if (!project || project.userId !== user.id) throw new HttpError(404, 'Project not found');
+  return project;
+}
+
+let activeScans = 0;
+// Builds burn CPU: cap how often one user can start them (auto-deploys on new commits are exempt).
+const deployLimiter = new RateLimiter(30, 60 * 60 * 1000, 'You are deploying too often. Please wait a while before starting another build.');
+
+export class DeployController {
+  static health() {
+    return {
+      status: 'ok',
+      runner: RunnerService.current().name,
+      urlTemplate: projectUrl('{slug}'),
+      signupOpen: Store.allUsers().length === 0 || (Store.settings().allowSignup ?? config.allowSignup),
+      time: new Date().toISOString(),
+    };
+  }
+
+  /** Clones the repo to a temp folder and lists every sub-folder holding a package.json. */
+  static async scan(ctx: Ctx) {
+    AuthService.requireUser(ctx.user);
+    const body = await ctx.json();
+    const { url, repoName } = validateRepoUrl(body.repoUrl);
+    const branch = validateBranch(body.branch);
+
+    if (activeScans >= 3) throw new HttpError(429, 'Too many scans running, try again in a moment');
+    activeScans++;
+    try {
+      const folders = await ClonerService.scan(url, branch);
+      return { repoName, folders };
+    } catch (err) {
+      throw new HttpError(422, `Could not read the repository. Is it public, and does the branch exist? (${(err as Error).message})`);
+    } finally {
+      activeScans--;
+    }
+  }
+
+  static list(ctx: Ctx) {
+    const user = AuthService.requireUser(ctx.user);
+    return { projects: Store.projectsOf(user.id).map(toPublicProject) };
+  }
+
+  static async create(ctx: Ctx) {
+    const user = AuthService.requireUser(ctx.user);
+    const body = await ctx.json();
+    const { url, repoName } = validateRepoUrl(body.repoUrl);
+    deployLimiter.hit(user.id);
+
+    const { project, deployment } = await DeployService.createProject({
+      userId: user.id,
+      name: validateProjectName(body.name, repoName),
+      repoUrl: url,
+      branch: validateBranch(body.branch),
+      rootDir: validateRootDir(body.rootDir),
+      env: validateEnv(body.env),
+      kindPref: validateKind(body.kind),
+      buildCommand: validateCommand(body.buildCommand, 'buildCommand'),
+      startCommand: validateCommand(body.startCommand, 'startCommand'),
+      outputDir: validateOutputDir(body.outputDir),
+      autoDeploy: body.autoDeploy === undefined ? true : body.autoDeploy === true,
+    });
+    ctx.status = 201;
+    return { project: toPublicProject(project), deployment: toPublicDeployment(deployment) };
+  }
+
+  static get(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    return {
+      project: toPublicProject(project),
+      deployments: Store.deploymentsOf(project.id).map(toPublicDeployment),
+    };
+  }
+
+  static async update(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    const body = await ctx.json();
+    const patch: Partial<Project> = {};
+    if (body.name !== undefined) patch.name = validateProjectName(body.name, project.name);
+    if (body.env !== undefined) patch.env = validateEnv(body.env);
+    if (body.autoDeploy !== undefined) patch.autoDeploy = body.autoDeploy === true;
+    if (body.rootDir !== undefined) patch.rootDir = validateRootDir(body.rootDir);
+    if (body.kind !== undefined) patch.kindPref = validateKind(body.kind);
+    if (body.buildCommand !== undefined) patch.buildCommand = validateCommand(body.buildCommand, 'buildCommand');
+    if (body.startCommand !== undefined) patch.startCommand = validateCommand(body.startCommand, 'startCommand');
+    if (body.outputDir !== undefined) patch.outputDir = validateOutputDir(body.outputDir);
+    if (project.status === 'deploying' && Object.keys(patch).some((k) => k !== 'name' && k !== 'env')) {
+      throw new HttpError(409, 'Wait for the current deployment to finish before changing build settings');
+    }
+    const updated = await Store.updateProject(project.id, patch);
+    return { project: toPublicProject(updated) };
+  }
+
+  static async redeploy(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    deployLimiter.hit(project.userId);
+    const deployment = await DeployService.deploy(project, 'redeploy');
+    ctx.status = 202;
+    return { deployment: toPublicDeployment(deployment) };
+  }
+
+  static async stop(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    if (project.status === 'deploying') throw new HttpError(409, 'Wait for the deployment to finish first');
+    await DeployService.stop(project);
+    return { project: toPublicProject(project) };
+  }
+
+  static async start(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    if (project.status === 'deploying') throw new HttpError(409, 'A deployment is in progress');
+    await DeployService.start(project);
+    return { project: toPublicProject(project) };
+  }
+
+  static async remove(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    if (project.status === 'deploying') throw new HttpError(409, 'Wait for the deployment to finish before deleting');
+    await DeployService.remove(project);
+    return { ok: true };
+  }
+
+  /** Build log of one deployment. Poll with ?after=<next> to receive only new lines. */
+  static async deploymentLogs(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    const deployment = Store.getDeployment(ctx.params.did ?? '');
+    if (!deployment || deployment.projectId !== project.id) throw new HttpError(404, 'Deployment not found');
+
+    const after = Math.max(0, Number.parseInt(ctx.query.get('after') ?? '0', 10) || 0);
+    const { lines, next } = await DeployLog.read(deployment.id, after);
+    return { lines, next, status: deployment.status, error: deployment.error };
+  }
+
+  static async runtimeLogs(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    const lines = Math.min(500, Math.max(10, Number.parseInt(ctx.query.get('lines') ?? '200', 10) || 200));
+    if (!project.runtime) return { logs: '' };
+    return { logs: await RunnerService.for(project).runtimeLogs(project, lines) };
+  }
+}
