@@ -7,7 +7,7 @@ import { Nav } from '@/components/Nav';
 
 const LANDING_TITLE = 'HostX — Deploy your MERN app from GitHub in minutes';
 const LANDING_DESCRIPTION =
-  'Deploy React frontends and Node/Express APIs from GitHub with your MongoDB Atlas database, free HTTPS and custom domains. Apps never sleep. Start free.';
+  'Deploy React frontends and Node/Express APIs from GitHub with your MongoDB Atlas database, free HTTPS and custom domains. No cold starts. Start free.';
 
 export const metadata: Metadata = pageMetadata({ title: LANDING_TITLE, description: LANDING_DESCRIPTION, path: '/', absoluteTitle: true });
 
@@ -41,7 +41,7 @@ const FEATURES: Array<{ icon: IconName; title: string; text: string; span: strin
   { icon: 'shield', title: 'Docker isolation', text: 'Each app runs in a container with a memory cap, CPU limit and process limit. One bad app never takes the server down.', span: 'span-2' },
   { icon: 'globe', title: 'HTTPS & custom domains', text: 'A free my-app subdomain with HTTPS, or connect your own domain — certificates are automatic. WebSockets work too.', span: 'span-2' },
   { icon: 'key', title: 'MongoDB Atlas ready', text: 'Paste your free Atlas connection string as MONGODB_URI — a step-by-step guide shows you how. Just mongoose.connect().', span: 'span-2' },
-  { icon: 'refresh', title: 'Never sleeps, never breaks', text: 'Apps stay on 24/7. Redeploys are zero-downtime, crashes restart automatically, and you can roll back in one click.', span: 'span-3' },
+  { icon: 'refresh', title: 'Never sleeps, never breaks', text: 'No 15-minute sleep and no cold starts: apps stay on while people use them (free web services pause only after 7 days without a single visit). Redeploys are zero-downtime, crashes restart automatically, and you can roll back in one click.', span: 'span-3' },
   { icon: 'bolt', title: 'Private repos & auto-deploy', text: 'Connect GitHub once. Every push to your branch goes live on its own; a failed build never replaces a working version.', span: 'span-3' },
 ];
 
@@ -62,7 +62,7 @@ export default function Landing() {
           </h1>
           <p className="lead">
             HostX turns a GitHub repository into a live app — React frontends and Node/Express APIs connected to your MongoDB
-            Atlas database, with HTTPS, auto-deploys and real build logs. Your apps never sleep. Start free, no credit card.
+            Atlas database, with HTTPS, auto-deploys and real build logs. No cold starts. Free plan: 5 web services + 10 static sites, no credit card.
           </p>
           <div className="hero-cta">
             <Link href="/register" className="btn btn-primary btn-lg">

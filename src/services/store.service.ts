@@ -1,13 +1,14 @@
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { config } from '../config/index.js';
-import { PLANS, billingEnabled, type PlanId, type PlanLimits } from '../config/plans.js';
+import { HttpError } from '../utils/http.js';
+import { billingEnabled, getPlan, setPlanOverrides, type PlanId, type PlanLimits, type PlanOverrides } from '../config/plans.js';
 import { logger } from '../utils/logger.js';
 import { Db } from './db.service.js';
 import { DeployLog } from './log.service.js';
 import { Vault } from './vault.service.js';
 
-export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed';
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'paused' | 'archived';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
 export type ProjectKind = 'static' | 'node';
 export type RuntimeKind = 'docker' | 'process' | 'static';
@@ -65,6 +66,8 @@ export interface OneTimeToken {
 export interface Settings {
   allowSignup: boolean | null;
   maxProjectsPerUser: number | null;
+  /** Admin changes to plan limits, prices and Razorpay plan ids (null = env defaults). */
+  plans?: PlanOverrides | null;
 }
 
 /** One refresh token. Rotated on every use; rows of one login share a familyId so theft can revoke them all. */
@@ -122,6 +125,13 @@ export interface Project {
   githubInstallationId: number | null;
   /** Deployment whose build is serving traffic right now (changes on success and on rollback). */
   liveDeploymentId: string | null;
+  /** Last request to the app (saved every few minutes), deploy or resume: free apps pause after days without one. */
+  lastVisitAt: string | null;
+  /** Free plan: when the app was paused for inactivity, and when the "will be archived" email went out. */
+  pausedAt: string | null;
+  archiveWarnedAt: string | null;
+  /** Set while archived (cleared by a successful deploy): a failed restore stays "archived", not "failed". */
+  archivedAt: string | null;
   /** Newest commit HostX has seen on the branch. Auto-deploy compares against it, so a rollback is not undone by polling. */
   lastRemoteCommit: string | null;
   currentDeploymentId: string | null;
@@ -192,7 +202,7 @@ export interface ProjectEvent {
   id: string;
   projectId: string;
   at: string;
-  kind: 'crash' | 'restart' | 'recovered' | 'rollback';
+  kind: 'crash' | 'restart' | 'recovered' | 'rollback' | 'paused' | 'archived';
   message: string;
 }
 
@@ -228,6 +238,11 @@ const loadProject = ({ database: _removed, ...p }: Project & { database?: unknow
   domains: p.domains ?? [],
   liveDeploymentId: p.liveDeploymentId ?? null,
   lastRemoteCommit: p.lastRemoteCommit ?? null,
+  // Records from before visit tracking start a fresh idle period (not "idle since the last deploy").
+  lastVisitAt: p.lastVisitAt ?? new Date().toISOString(),
+  pausedAt: p.pausedAt ?? null,
+  archiveWarnedAt: p.archiveWarnedAt ?? null,
+  archivedAt: p.archivedAt ?? (p.status === 'archived' ? p.updatedAt : null),
 });
 
 const projectDoc = (p: Project): string =>
@@ -272,6 +287,8 @@ export class Store {
       adminNotifications: docs<AdminNotification>('admin_notifications', ' ORDER BY at DESC'),
       settings: settings ? (JSON.parse(settings.doc) as Settings) : { allowSignup: null, maxProjectsPerUser: null },
     };
+
+    setPlanOverrides(this.db.settings.plans);
 
     // Accounts created before roles existed: make sure somebody can administer the platform.
     if (this.db.users.length > 0 && !this.db.users.some((u) => u.role === 'admin')) {
@@ -463,6 +480,7 @@ export class Store {
     const next = { ...this.db.settings, ...patch };
     Db.put('settings', { key: 'platform', doc: JSON.stringify(next) }, 'key');
     Object.assign(this.db.settings, patch);
+    if ('plans' in patch) setPlanOverrides(this.db.settings.plans);
     return this.db.settings;
   }
 
@@ -517,7 +535,8 @@ export class Store {
   }
 
   static usedPorts(): Set<number> {
-    return new Set(this.db.projects.map((p) => p.port));
+    // 0 = no port (archived apps give theirs back).
+    return new Set(this.db.projects.map((p) => p.port).filter((p) => p > 0));
   }
 
   static async addProject(project: Project): Promise<Project> {
@@ -659,12 +678,41 @@ export class Store {
 export function limitsFor(user: User | undefined): PlanLimits {
   const legacyProjects = Store.settings().maxProjectsPerUser ?? config.limits.maxProjectsPerUser;
   const base: PlanLimits = billingEnabled() && user
-    ? PLANS[user.plan]
-    : { projects: legacyProjects, customDomains: 1000, memory: config.limits.memory, cpus: config.limits.cpus };
-  // Admins are never limited by plans; an admin-set project limit always wins.
+    ? getPlan(user.plan)
+    : {
+        projects: legacyProjects,
+        webServices: legacyProjects,
+        staticSites: legacyProjects,
+        customDomains: 1000,
+        memory: config.limits.memory,
+        cpus: config.limits.cpus,
+        pauseAfterDays: null,
+        archiveAfterDays: null,
+        rollbackImages: config.limits.rollbackImages,
+      };
+  // Admins are never limited or paused by plans; an admin-set project limit always wins (as the total).
   const admin = user?.role === 'admin';
+  const roomy = (v: number) => (admin ? Math.max(v, 100) : v);
   return {
     ...base,
-    projects: user?.maxProjects ?? (admin ? Math.max(base.projects, 100) : base.projects),
+    projects: user?.maxProjects ?? roomy(base.projects),
+    webServices: roomy(base.webServices),
+    staticSites: roomy(base.staticSites),
+    pauseAfterDays: admin ? null : base.pauseAfterDays,
+    archiveAfterDays: admin ? null : base.archiveAfterDays,
   };
+}
+
+/** What a project counts as against plan limits: its chosen type, else the detected one, else a web service. */
+export const kindOf = (p: Pick<Project, 'kindPref' | 'kind'>): ProjectKind => p.kindPref ?? p.kind ?? 'node';
+
+/** Throws a clear 403 when `userId` may not have one more project of `kind` (`ignoreId`: a project changing type). */
+export function assertRoomFor(userId: string, kind: ProjectKind, ignoreId?: string): void {
+  const limits = limitsFor(Store.getUserById(userId));
+  const mine = Store.projectsOf(userId).filter((p) => p.id !== ignoreId);
+  const upgrade = billingEnabled() ? ' Upgrade your plan on the Billing page, or delete one you no longer need.' : ' Delete one you no longer need.';
+  if (!ignoreId && mine.length >= limits.projects) throw new HttpError(403, `Project limit reached (${limits.projects}).${upgrade}`);
+  const same = mine.filter((p) => kindOf(p) === kind).length;
+  const max = kind === 'node' ? limits.webServices : limits.staticSites;
+  if (same >= max) throw new HttpError(403, `${kind === 'node' ? 'Web Service' : 'Static Site'} limit reached (${max}).${upgrade}`);
 }

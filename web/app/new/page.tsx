@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { useAuth, useRequireAuth } from '@/lib/auth';
 import { slugPreview, timeAgo } from '@/lib/format';
 import type { BuildConfig, GitHubRepo, GitHubStatus, ScanFolder } from '@/lib/types';
+import { GITHUB_RESULT } from '@/lib/github-result';
 
 type Kind = BuildConfig['kind'];
 
@@ -49,6 +50,7 @@ export default function NewDeploy() {
   const router = useRouter();
 
   // Step 1: what to deploy. Step 2: which repo. Step 3: settings.
+  const [githubResult, setGithubResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [kind, setKind] = useState<Kind | null>(null);
   const [query, setQuery] = useState('');
   const [repoUrl, setRepoUrl] = useState('');
@@ -77,7 +79,9 @@ export default function NewDeploy() {
     const t = params.get('type');
     if (t === 'static') setKind('static');
     if (t === 'web' || t === 'node') setKind('node');
-    if (params.get('github')) {
+    const gh = params.get('github');
+    if (gh) {
+      if (GITHUB_RESULT[gh]) setGithubResult(GITHUB_RESULT[gh]);
       window.history.replaceState(null, '', '/new');
       void reload();
     }
@@ -103,18 +107,19 @@ export default function NewDeploy() {
   // A pasted URL of one of your connected repos is cloned through the GitHub App (private repos too).
   const typedRepo = looksLikeRepoUrl(query) ? repos?.find((r) => normalizeRepo(r.url) === normalizeRepo(query)) : undefined;
 
-  const scan = async (url: string, fromGithub: GitHubRepo | null, scanBranch: string) => {
+  // rescan = same repository, another branch: the form stays visible (also if it fails) and a name the user typed is kept.
+  const scan = async (url: string, fromGithub: GitHubRepo | null, scanBranch: string, rescan = false) => {
     const seq = ++scanSeq.current;
     setError('');
     setScanning(true);
-    setScanned(false);
+    if (!rescan) setScanned(false);
     try {
       const r = await api.scan(url, scanBranch, fromGithub?.installationId);
       if (seq !== scanSeq.current) return;
       setFolders(r.folders);
       const best = pickFolder(r.folders, kind ?? 'node');
       setConfig(best ? { ...folderToConfig(best), kind: kind ?? best.kind } : { ...EMPTY_CONFIG, kind: kind ?? 'node' });
-      setName(r.repoName);
+      if (!rescan || !name.trim()) setName(r.repoName);
       setScannedBranch(scanBranch);
       setScanned(true);
     } catch (err) {
@@ -190,6 +195,8 @@ export default function NewDeploy() {
           <div className="stepper" aria-label={`Step ${step} of 3`}>
             <div className="on" /><div className={step >= 2 ? 'on' : ''} /><div className={step >= 3 ? 'on' : ''} />
           </div>
+
+          {githubResult && <div className={githubResult.ok ? 'notice-box' : 'error-box'} role="status" style={{ marginBottom: 16 }}>{githubResult.text}</div>}
 
           {/* ── Step 1: service type ── */}
           {step === 1 && (
@@ -324,7 +331,7 @@ export default function NewDeploy() {
                     <div className="row">
                       <input id="branch" className="input mono" value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="default branch" spellCheck={false} />
                       {branch.trim() !== scannedBranch && (
-                        <button type="button" className="btn" disabled={scanning} onClick={() => void scan(repoUrl, repo, branch.trim())}>Re-scan</button>
+                        <button type="button" className="btn" disabled={scanning} onClick={() => void scan(repoUrl, repo, branch.trim(), true)}>Re-scan</button>
                       )}
                     </div>
                   </div>

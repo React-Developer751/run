@@ -5,10 +5,10 @@ import type { Ctx } from '../utils/http.js';
 import { HttpError } from '../utils/http.js';
 import { exec } from '../utils/exec.js';
 import { AuthService } from '../services/auth.service.js';
-import { isPlanId } from '../config/plans.js';
+import { PLANS, PLAN_IDS, billingEnabled, getPlan, isPlanId, razorpayPlanId, type EditablePlan, type PlanId, type PlanOverrides } from '../config/plans.js';
 import { BillingService } from '../services/billing.service.js';
 import { AccountService } from '../services/account.service.js';
-import { DeployService } from '../services/deploy.service.js';
+import { DeployService, assertCanStart, assertCanStop } from '../services/deploy.service.js';
 import { StorageMonitorService } from '../services/storage-monitor.service.js';
 import { DeployLog } from '../services/log.service.js';
 import { RunnerService } from '../services/runner.service.js';
@@ -104,7 +104,8 @@ export class AdminController {
         const t = new Date(d.createdAt).getTime();
         return t >= start.getTime() && t < end;
       });
-      return { date: start.toISOString().slice(0, 10), total: inDay.length, failed: inDay.filter((d) => d.status === 'failed').length };
+      const date = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+      return { date, total: inDay.length, failed: inDay.filter((d) => d.status === 'failed').length };
     });
 
     const disk = await diskUsage();
@@ -121,6 +122,9 @@ export class AdminController {
         deploying: count('deploying'),
         failed: count('failed'),
         stopped: count('stopped'),
+        crashed: count('crashed'),
+        paused: count('paused'),
+        archived: count('archived'),
         static: projects.filter((p) => p.kind === 'static').length,
         node: projects.filter((p) => p.kind === 'node').length,
       },
@@ -179,14 +183,20 @@ export class AdminController {
     if (body.maxProjects !== undefined) {
       const v = body.maxProjects;
       if (v !== null && (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 100)) throw new HttpError(400, 'maxProjects must be a whole number 0-100, or null for the default');
-      patch.maxProjects = v as number | null;
-      notes.push(`maxProjects=${String(v)}`);
+      if (v !== target.maxProjects) {
+        patch.maxProjects = v as number | null;
+        notes.push(`maxProjects=${String(v)}`);
+      }
     }
 
     let newPlan: string | null = null;
     if (body.plan !== undefined) {
       if (!isPlanId(body.plan)) throw new HttpError(400, 'plan must be free, starter or pro');
       if (body.plan !== target.plan) {
+        const sub = target.subscription;
+        if (sub && ['created', 'active', 'pending', 'cancelling'].includes(sub.status)) {
+          throw new HttpError(409, 'This user has a Razorpay subscription. Cancel it (or wait for it to end) before changing the plan by hand.');
+        }
         newPlan = body.plan;
         notes.push(`plan=${body.plan}`);
       }
@@ -207,7 +217,7 @@ export class AdminController {
     if (patch.suspended === true) {
       // A suspended account's apps go offline immediately.
       for (const p of Store.projectsOf(target.id)) {
-        if (p.status === 'live') await DeployService.stop(p).catch(() => undefined);
+        if (p.runtime !== null && ['live', 'crashed', 'paused'].includes(p.status)) await DeployService.stop(p).catch(() => undefined);
       }
     }
     if (notes.length) await Store.addAudit(actor, 'user.update', target.email, notes.join(', '));
@@ -250,7 +260,7 @@ export class AdminController {
   static async stop(ctx: Ctx) {
     const actor = admin(ctx);
     const p = projectOf(ctx);
-    if (p.status === 'deploying') throw new HttpError(409, 'A deployment is in progress');
+    assertCanStop(p);
     await DeployService.stop(p);
     await Store.addAudit(actor, 'project.stop', p.slug);
     return { project: projectRow(p) };
@@ -259,7 +269,7 @@ export class AdminController {
   static async start(ctx: Ctx) {
     const actor = admin(ctx);
     const p = projectOf(ctx);
-    if (p.status === 'deploying') throw new HttpError(409, 'A deployment is in progress');
+    assertCanStart(p);
     if (Store.getUserById(p.userId)?.suspended) throw new HttpError(409, 'The owner is suspended. Reactivate the account first.');
     await DeployService.start(p);
     await Store.addAudit(actor, 'project.start', p.slug);
@@ -339,8 +349,39 @@ export class AdminController {
       if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 100) throw new HttpError(400, 'maxProjectsPerUser must be a whole number 0-100');
       patch.maxProjectsPerUser = v;
     }
+    // Plans: `plans: { starter: { webServices: 20 } }` changes fields, `resetPlan: "starter"` goes back to the defaults.
+    const resized: PlanId[] = [];
+    if (body.plans !== undefined || body.resetPlan !== undefined) {
+      const next: PlanOverrides = structuredClone(Store.settings().plans ?? {});
+      if (body.resetPlan !== undefined) {
+        if (!isPlanId(body.resetPlan)) throw new HttpError(400, 'resetPlan must be free, starter or pro');
+        delete next[body.resetPlan];
+        resized.push(body.resetPlan);
+      }
+      if (body.plans !== undefined) {
+        if (!body.plans || typeof body.plans !== 'object') throw new HttpError(400, 'plans must be an object');
+        for (const [id, raw] of Object.entries(body.plans as Record<string, unknown>)) {
+          if (!isPlanId(id)) throw new HttpError(400, `Unknown plan ${id}`);
+          const changes = validatePlanPatch(id, raw);
+          next[id] = { ...(next[id] ?? {}), ...changes };
+          // An empty Razorpay plan id means "use the one from the server environment".
+          if (next[id]?.razorpayPlanId === '') delete next[id]!.razorpayPlanId;
+          if (changes.memory !== undefined || changes.cpus !== undefined) resized.push(id);
+        }
+      }
+      for (const id of PLAN_IDS) {
+        const merged = { ...PLANS[id], ...next[id] };
+        if (merged.pauseAfterDays !== null && merged.archiveAfterDays !== null && merged.archiveAfterDays <= merged.pauseAfterDays + 7) {
+          throw new HttpError(400, `${merged.name}: archive must be at least 8 days after pause (a warning email goes out 7 days before)`);
+        }
+      }
+      patch.plans = next;
+    }
+    if (!Object.keys(patch).length) return { settings: effectiveSettings() };
     await Store.updateSettings(patch);
-    await Store.addAudit(actor, 'settings.update', 'platform', JSON.stringify(patch));
+    await Store.addAudit(actor, 'settings.update', 'platform', JSON.stringify({ ...patch, ...(body.resetPlan ? { resetPlan: body.resetPlan } : {}) }));
+    // New RAM/CPU apply to running apps right away (Docker), not only on their next deploy.
+    for (const id of new Set(resized)) await BillingService.applyPlanLimits(id);
     return { settings: effectiveSettings() };
   }
 
@@ -386,5 +427,64 @@ function effectiveSettings() {
   return {
     allowSignup: s.allowSignup ?? config.allowSignup,
     maxProjectsPerUser: s.maxProjectsPerUser ?? config.limits.maxProjectsPerUser,
+    billingEnabled: billingEnabled(),
+    // Keys set but no plan id yet: the plan editor is shown so the admin can paste one.
+    razorpayKeys: BillingService.hasKeys(),
+    // Current plan values, which of them the admin changed, and the defaults to go back to.
+    plans: PLAN_IDS.map((id) => {
+      const { projects: _total, id: _id, ...current } = getPlan(id);
+      const { projects: _t, id: _i, ...defaults } = PLANS[id];
+      return {
+        id,
+        ...current,
+        razorpayPlanId: razorpayPlanId(id),
+        customized: Object.keys(s.plans?.[id] ?? {}),
+        defaults: { ...defaults, razorpayPlanId: id === 'free' ? '' : config.razorpay.planIds[id] },
+        users: Store.allUsers().filter((u) => u.plan === id).length,
+      };
+    }),
   };
+}
+
+const intIn = (v: unknown, min: number, max: number, field: string): number => {
+  if (typeof v !== 'number' || !Number.isInteger(v) || v < min || v > max) throw new HttpError(400, `${field} must be a whole number ${min}-${max}`);
+  return v;
+};
+
+/** Validates one plan's changes from the admin form. Only known fields; days may be null (= never). */
+function validatePlanPatch(id: PlanId, raw: unknown): Partial<EditablePlan> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, `plans.${id} must be an object`);
+  const b = raw as Record<string, unknown>;
+  const out: Partial<EditablePlan> = {};
+  const label = (f: string) => `${getPlan(id).name}: ${f}`;
+  if (b.name !== undefined) {
+    if (typeof b.name !== 'string' || b.name.trim().length < 2 || b.name.trim().length > 30) throw new HttpError(400, label('name must be 2-30 characters'));
+    out.name = b.name.trim();
+  }
+  if (b.priceInr !== undefined) out.priceInr = intIn(b.priceInr, 0, 1_000_000, label('price'));
+  if (b.webServices !== undefined) out.webServices = intIn(b.webServices, 0, 10_000, label('web services'));
+  if (b.staticSites !== undefined) out.staticSites = intIn(b.staticSites, 0, 10_000, label('static sites'));
+  if (b.customDomains !== undefined) out.customDomains = intIn(b.customDomains, 0, 10_000, label('custom domains'));
+  if (b.rollbackImages !== undefined) out.rollbackImages = intIn(b.rollbackImages, 1, 10, label('rollback versions'));
+  if (b.memory !== undefined) {
+    if (typeof b.memory !== 'string' || !/^\d{2,5}m$|^\d{1,2}(\.\d)?g$/.test(b.memory)) throw new HttpError(400, label('memory must look like 512m or 1g'));
+    out.memory = b.memory;
+  }
+  if (b.cpus !== undefined) {
+    const n = Number(b.cpus);
+    if (typeof b.cpus !== 'string' || !Number.isFinite(n) || n < 0.1 || n > 32) throw new HttpError(400, label('CPU must be between 0.1 and 32'));
+    out.cpus = String(n);
+  }
+  for (const key of ['pauseAfterDays', 'archiveAfterDays'] as const) {
+    if (b[key] === undefined) continue;
+    out[key] = b[key] === null ? null : intIn(b[key], 1, 3650, label(key === 'pauseAfterDays' ? 'pause after (days)' : 'archive after (days)'));
+  }
+  if (b.razorpayPlanId !== undefined) {
+    if (id === 'free') throw new HttpError(400, 'The Free plan has no Razorpay plan');
+    if (typeof b.razorpayPlanId !== 'string' || (b.razorpayPlanId !== '' && !/^plan_[A-Za-z0-9]{6,30}$/.test(b.razorpayPlanId))) {
+      throw new HttpError(400, label('Razorpay plan id looks like plan_XXXXXXXXXXXXXX'));
+    }
+    out.razorpayPlanId = b.razorpayPlanId;
+  }
+  return out;
 }

@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useToast } from '@/lib/hooks';
-import type { PlatformSettings } from '@/lib/types';
+import { PlanEditor } from '@/components/PlanEditor';
+import type { PlatformSettings, SettingsPatch } from '@/lib/types';
 
 export default function AdminSettings() {
   const { toast, flash } = useToast();
@@ -16,7 +17,7 @@ export default function AdminSettings() {
     api.admin.settings().then((r) => { setSettings(r.settings); setLimit(String(r.settings.maxProjectsPerUser)); }).catch((e: Error) => setError(e.message));
   }, []);
 
-  const save = async (patch: Partial<PlatformSettings>, done: string) => {
+  const save = async (patch: SettingsPatch, done: string): Promise<boolean> => {
     setBusy(true);
     setError('');
     try {
@@ -24,8 +25,11 @@ export default function AdminSettings() {
       setSettings(r.settings);
       setLimit(String(r.settings.maxProjectsPerUser));
       flash(done);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return false;
     } finally {
       setBusy(false);
     }
@@ -34,7 +38,7 @@ export default function AdminSettings() {
   if (!settings) return error ? <div className="error-box">{error}</div> : <div className="center-screen"><span className="spinner" /></div>;
 
   return (
-    <div className="stack" style={{ gap: 20, maxWidth: 720 }}>
+    <div className="stack" style={{ gap: 20, maxWidth: 860 }}>
       <div className="page-head" style={{ marginBottom: 0 }}><div><h1>Settings</h1><p>Platform rules. Changes apply immediately, no restart needed.</p></div></div>
       {error && <div className="error-box">{error}</div>}
 
@@ -46,8 +50,19 @@ export default function AdminSettings() {
         </label>
       </div>
 
+      {settings.billingEnabled || settings.razorpayKeys ? (
+        <>
+          {!settings.billingEnabled && <div className="notice-box">Razorpay keys are set. Paste a Razorpay plan id into Starter or Pro below to turn on paid plans.</div>}
+          <PlanEditor plans={settings.plans} busy={busy} onSave={save} />
+        </>
+      ) : (
+        <div className="notice-box">
+          Plans (Free / Starter / Pro) take effect once Razorpay is configured. Until then every user gets the limits below.
+        </div>
+      )}
+
       <div className="card stack">
-        <h3 className="card-title">Limits</h3>
+        <h3 className="card-title">{settings.billingEnabled ? 'Without billing' : 'Limits'}</h3>
         <div className="field">
           <label className="label" htmlFor="limit">Default projects per user</label>
           <div className="row">

@@ -1,4 +1,4 @@
-export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed';
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'paused' | 'archived';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
 
 export interface User {
@@ -54,7 +54,7 @@ export interface CustomDomain {
 export interface ProjectEvent {
   id: string;
   at: string;
-  kind: 'crash' | 'restart' | 'recovered' | 'rollback';
+  kind: 'crash' | 'restart' | 'recovered' | 'rollback' | 'paused' | 'archived';
   message: string;
 }
 
@@ -104,6 +104,12 @@ export type PlanId = 'free' | 'starter' | 'pro';
 
 export interface PlanLimits {
   projects: number;
+  webServices: number;
+  staticSites: number;
+  /** Free plan: apps with no visits for this many days are paused (null = never). */
+  pauseAfterDays: number | null;
+  archiveAfterDays: number | null;
+  rollbackImages: number;
   customDomains: number;
   memory: string;
   cpus: string;
@@ -120,7 +126,7 @@ export interface BillingInfo {
   enabled: boolean;
   plan: PlanId;
   limits: PlanLimits;
-  usage: { projects: number; customDomains: number };
+  usage: { projects: number; webServices: number; staticSites: number; paused: number; customDomains: number };
   subscription: {
     plan: PlanId;
     status: 'created' | 'active' | 'pending' | 'cancelling' | 'cancelled' | 'halted';
@@ -200,14 +206,44 @@ export interface AuditEntry {
   detail: string;
 }
 
+export interface EditablePlan {
+  name: string;
+  priceInr: number;
+  webServices: number;
+  staticSites: number;
+  customDomains: number;
+  memory: string;
+  cpus: string;
+  pauseAfterDays: number | null;
+  archiveAfterDays: number | null;
+  rollbackImages: number;
+  razorpayPlanId: string;
+}
+
+export interface AdminPlan extends EditablePlan {
+  id: PlanId;
+  /** Fields the admin changed (others come from the server defaults). */
+  customized: string[];
+  defaults: EditablePlan;
+  users: number;
+}
+
 export interface PlatformSettings {
   allowSignup: boolean;
   maxProjectsPerUser: number;
+  billingEnabled: boolean;
+  razorpayKeys: boolean;
+  plans: AdminPlan[];
 }
+
+export type SettingsPatch = Partial<Pick<PlatformSettings, 'allowSignup' | 'maxProjectsPerUser'>> & {
+  plans?: Partial<Record<PlanId, Partial<EditablePlan>>>;
+  resetPlan?: PlanId;
+};
 
 export interface AdminStats {
   users: { total: number; admins: number; suspended: number; newLast7d: number };
-  projects: { total: number; live: number; deploying: number; failed: number; stopped: number; static: number; node: number };
+  projects: { total: number; live: number; deploying: number; failed: number; stopped: number; crashed: number; paused: number; archived: number; static: number; node: number };
   deployments: { total: number; last24h: number; failed24h: number; auto24h: number; perDay: Array<{ date: string; total: number; failed: number }> };
   platform: {
     runner: 'docker' | 'process';

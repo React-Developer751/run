@@ -33,8 +33,10 @@ export default function TermsPage() {
         <Link href="/pricing">Pricing</Link> page and may change; we will give reasonable notice of changes that reduce a paid plan.
       </p>
       <p>
-        Applications stay running on every plan. We may apply resource limits (memory, CPU, build time, storage, bandwidth) to keep the
-        platform fair and stable.
+        Applications stay running while they are used. On the Free plan, a web service with no visits for 7 days is paused (nothing is
+        deleted; you resume it from the dashboard), and one with no visits for 90 days is archived: its build is removed to free space, while
+        its settings, environment variables, domains and address are kept so it can be redeployed from your repository. Static sites and paid plans are never
+        paused or archived. We may apply resource limits (memory, CPU, build time, storage, bandwidth) to keep the platform fair and stable.
       </p>
 
       <h2>3. Your content and code</h2>

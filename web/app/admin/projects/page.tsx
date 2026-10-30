@@ -9,7 +9,7 @@ import { repoLabel, timeAgo } from '@/lib/format';
 import { usePoll, useToast } from '@/lib/hooks';
 import type { AdminProject, ProjectStatus } from '@/lib/types';
 
-const FILTERS: Array<ProjectStatus | 'all'> = ['all', 'live', 'deploying', 'crashed', 'failed', 'stopped'];
+const FILTERS: Array<ProjectStatus | 'all'> = ['all', 'live', 'deploying', 'crashed', 'failed', 'stopped', 'paused', 'archived'];
 
 export default function AdminProjects() {
   const { data, error, reload } = usePoll(() => api.admin.projects(), 6000);
@@ -78,9 +78,12 @@ export default function AdminProjects() {
                   <div className="row-actions">
                     <button className="btn btn-sm" onClick={() => setLogs(p)}><Icon name="terminal" /> Logs</button>
                     <button className="icon-btn" title="Redeploy" aria-label="Redeploy" disabled={busy !== '' || p.status === 'deploying'} onClick={() => act(`d${p.id}`, () => api.admin.redeployProject(p.id), 'Redeploy started')}><Icon name="refresh" /></button>
-                    {p.status === 'stopped'
-                      ? <button className="icon-btn" title="Start" aria-label="Start" disabled={busy !== ''} onClick={() => act(`a${p.id}`, () => api.admin.startProject(p.id), 'Started')}><Icon name="play" /></button>
-                      : <button className="icon-btn" title="Stop" aria-label="Stop" disabled={busy !== '' || p.status === 'deploying' || p.status === 'failed'} onClick={() => act(`o${p.id}`, () => api.admin.stopProject(p.id), 'Stopped')}><Icon name="stop" /></button>}
+                    {(p.status === 'stopped' || p.status === 'paused') && (
+                      <button className="icon-btn" title={p.status === 'paused' ? 'Resume' : 'Start'} aria-label={p.status === 'paused' ? 'Resume' : 'Start'} disabled={busy !== ''} onClick={() => act(`a${p.id}`, () => api.admin.startProject(p.id), 'Started')}><Icon name="play" /></button>
+                    )}
+                    {(p.status === 'live' || p.status === 'crashed') && (
+                      <button className="icon-btn" title="Stop" aria-label="Stop" disabled={busy !== ''} onClick={() => act(`o${p.id}`, () => api.admin.stopProject(p.id), 'Stopped')}><Icon name="stop" /></button>
+                    )}
                     <button className="icon-btn" aria-label={`Delete ${p.name}`} disabled={busy !== '' || p.status === 'deploying'} onClick={() => {
                       if (window.confirm(`Delete "${p.name}" owned by ${p.owner.email}? This cannot be undone.`)) void act(`x${p.id}`, () => api.admin.deleteProject(p.id), 'Project deleted');
                     }}><Icon name="trash" /></button>

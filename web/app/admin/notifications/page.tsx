@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { shortDate, timeAgo } from '@/lib/format';
 import { usePoll, useToast } from '@/lib/hooks';
-import type { AdminNotification, StorageReport } from '@/lib/types';
+import type { AdminNotification } from '@/lib/types';
 
 const KIND_LABEL: Record<AdminNotification['kind'], string> = {
   'deploy-failed': 'Deploy failed',
@@ -27,14 +27,13 @@ function StorageCard() {
   const { data, error, reload } = usePoll(() => api.admin.storage(), 60_000);
   const [busy, setBusy] = useState(false);
   const [checkError, setCheckError] = useState('');
-  const [fresh, setFresh] = useState<StorageReport | null>(null);
-  const report = fresh ?? data;
+  const report = data;
 
   const checkNow = async () => {
     setBusy(true);
     setCheckError('');
     try {
-      setFresh(await api.admin.checkStorage());
+      await api.admin.checkStorage();
       await reload();
       window.dispatchEvent(new Event('hostx:admin-notifications'));
     } catch (e) {

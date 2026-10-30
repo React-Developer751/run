@@ -7,14 +7,7 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useRequireAuth } from '@/lib/auth';
 import type { GitHubStatus } from '@/lib/types';
-
-const GITHUB_RESULT: Record<string, { ok: boolean; text: string }> = {
-  connected: { ok: true, text: 'GitHub connected. Your repositories now show up on the New deploy page.' },
-  requested: { ok: true, text: 'Installation requested. An owner of that GitHub organization has to approve it first.' },
-  expired: { ok: false, text: 'The GitHub connection took too long or was started from another account. Please try again.' },
-  'missing-code': { ok: false, text: 'GitHub did not send a sign-in code. In the GitHub App settings, enable "Request user authorization (OAuth) during installation".' },
-  failed: { ok: false, text: 'Could not connect GitHub. Please try again.' },
-};
+import { GITHUB_RESULT } from '@/lib/github-result';
 
 function GitHubCard() {
   const { reload } = useAuth();
@@ -116,6 +109,7 @@ function DeleteAccountCard() {
           <div className="field">
             <label className="label" htmlFor="del-pw">Your password</label>
             <input id="del-pw" type="password" className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+            <span className="hint">Signed up with GitHub and never set a password? Use <a href="/forgot-password">Forgot password</a> to set one first.</span>
           </div>
           <div className="field">
             <label className="label" htmlFor="del-confirm">Type <b>DELETE</b> to confirm</label>

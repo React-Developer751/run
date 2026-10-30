@@ -5,6 +5,7 @@ import path from 'node:path';
 import { config } from '../config/index.js';
 import { clientIp } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
+import { InactivityService } from './inactivity.service.js';
 import { Store, type Project } from './store.service.js';
 
 const MIME: Record<string, string> = {
@@ -119,6 +120,8 @@ export class ProxyService {
       }
       const project = resolveProject(req.headers.host);
       if (!project) return statusPage(res, 404, 'App not found', 'No deployment exists at this address.');
+      // Paused apps are not woken up by visits (the owner resumes them), so only serving apps count as visited.
+      if (isServing(project)) InactivityService.touch(project.id);
       if (!isServing(project)) {
         const msg =
           project.status === 'deploying'
@@ -127,7 +130,11 @@ export class ProxyService {
               ? 'This app has been stopped by its owner.'
               : project.status === 'crashed'
                 ? 'This app crashed. Its owner has been notified.'
-                : 'The last deployment of this app failed.';
+                : project.status === 'paused'
+                  ? 'This app is paused because it had no visitors for a while. Its owner can resume it from the HostX dashboard in one click.'
+                  : project.status === 'archived'
+                    ? 'This app was archived after a long time without visitors. Its owner can redeploy it from the HostX dashboard.'
+                    : 'The last deployment of this app failed.';
         return statusPage(res, 503, 'App unavailable', msg);
       }
       if (project.runtime === 'static') return serveStatic(project, req, res);

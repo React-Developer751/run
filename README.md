@@ -72,7 +72,7 @@ Static sites (Vite/CRA): Docker mode mein nginx container; Process mode mein bui
 1. **Behind Caddy/nginx set `HOSTX_TRUST_PROXY=true`.** Without it every user shares the proxy's IP in rate limits. Never set it if the API is reachable directly.
 2. **Docker network pools.** Every project gets its own Docker network; Docker's default pools allow only ~30. In `/etc/docker/daemon.json` set `{"default-address-pools":[{"base":"10.200.0.0/16","size":24}]}` (256 networks) and restart Docker.
 3. **Block what containers must not reach** (user code and builds run there): `iptables -I DOCKER-USER -d 169.254.169.254 -j DROP` (cloud metadata) and drop traffic from Docker bridges to the host's own ports (`iptables -I INPUT -i br+ -j DROP` / `-i docker0`), keeping only what you need.
-4. Firewall: only 80/443 (+SSH) public. Keep 3000, 4000, 8080 and 5001-5999 closed. Also set `HOSTX_PROXY_HOST=127.0.0.1` so the app proxy only listens for Caddy/nginx.
+4. Firewall: only 80/443 (+SSH) public. Keep 3000, 4000, 8080 and 5001-24999 closed. Also set `HOSTX_PROXY_HOST=127.0.0.1` so the app proxy only listens for Caddy/nginx.
 5. Run the engine as a dedicated user. Docker group membership is root-equivalent, so protect that account (SSH keys only, no password login).
 6. **Back up `data/backups/` + `data/secret.key` off the server** (e.g. nightly rsync / S3). The engine writes a consistent snapshot `data/backups/hostx-YYYY-MM-DD.db` every day and keeps 7 (`HOSTX_BACKUP_DAYS`). Do not change `HOSTX_SECRET` / `secret.key` afterwards: stored env vars become unreadable (they are encrypted with it).
 7. Set `HOSTX_ALLOW_SIGNUP=false` once your own accounts exist (open sign-up lets strangers run builds on your CPU).
@@ -183,7 +183,7 @@ Admin panel → **Notifications** (sidebar mein unread count). Saare admins ko e
 | **Deploy failed** | Kisi bhi user ka koi bhi deploy fail ho (owner email, kaunsa deploy, error ki pehli line, app abhi live hai ya offline) |
 | **Disk almost full** | Server disk jahan databases, backups aur builds rehte hain (`data/` aur Docker data root) 85% / 95% bhar jaye (`HOSTX_DISK_WARN_PERCENT`, `HOSTX_DISK_CRITICAL_PERCENT`) |
 | **Memory high** | Server RAM 85% / 95% use par, lagatar 3 minute tak (build ka chhota spike alert nahi deta). Sirf Linux par (`/proc/meminfo`), kyunki macOS cache ko "used" ginta hai. `HOSTX_MEMORY_WARN_PERCENT`, `HOSTX_MEMORY_CRITICAL_PERCENT` |
-| **Capacity limit** | App ports (5001-5999) ya Docker app networks 80% / 95% bhar jaayein (`HOSTX_NETWORK_CAPACITY`, default 250, README ke address pool ke hisaab se). Docker network banana fail ho to turant critical alert |
+| **Capacity limit** | App ports (5001-24999) ya Docker app networks 80% / 95% bhar jaayein (`HOSTX_NETWORK_CAPACITY`, default 250, README ke address pool ke hisaab se). Docker network banana fail ho to turant critical alert |
 
 Disk, ports aur networks har 10 min, RAM har minute check hote hain ("Check now" button bhi). Wahi level 24 ghante mein ek baar hi dobara aata hai; warning se critical par turant. Page par **Server capacity** card: har disk, RAM, ports, Docker networks aur live apps ki ginti.
 
@@ -242,15 +242,24 @@ Root domain (`myshop.com`) ke liye `HOSTX_PUBLIC_IP` set ho to A record dikhta h
 
 ## Plans & billing (Razorpay)
 
-| Plan | Price | Projects | RAM / CPU per app | Custom domains |
-|---|---|---|---|---|
-| Free | ₹0 | 2 | 512 MB / 0.5 | 1 |
-| Starter | ₹299/mo | 5 | 1 GB / 1 | 3 |
-| Pro | ₹999/mo | 15 | 2 GB / 2 | 10 |
+| Plan | Price | Web Services | Static Sites | RAM / CPU per app | Custom domains | Rollback images | Inactive apps |
+|---|---|---|---|---|---|---|---|
+| Free | ₹0 | 5 | 10 | 512 MB / 0.5 | 1 | 1 | 7 din bina visit → Paused, 90 din → Archived |
+| Starter | ₹299/mo | 15 | 50 | 1 GB / 1 | 3 | 3 | Kabhi nahi |
+| Pro | ₹999/mo | 50 | 150 | 2 GB / 2 | 10 | 3 | Kabhi nahi |
+
+**Admin se plans badlo (Admin → Settings → Plans & limits):** Free / Starter / Pro ke Web Services, Static Sites, custom domains, RAM/CPU per app, pause/archive ke din, rollback versions, naam, dikhne wali price aur Razorpay plan id — sab dashboard se, bina server restart. Badlaav turant Pricing/Billing page aur sabhi users par lagu hote hain; RAM/CPU badalne par chal rahe containers bhi turant resize hote hain. Limit ghatane par kuch delete nahi hota (user bas naye nahi bana sakta). Har badlaav Audit log mein jata hai, aur "Reset to defaults" se `.env` wali values wapas. **Asli charge badalna ho to:** Razorpay mein nayi plan banao aur uska `plan_...` id yahan daalo; purane subscribers apne purane plan id par bill hote rehte hain aur unka HostX plan sahi map hota hai.
+
+**Inactive free apps (sleep mode nahi):** jis app par visits aa rahi hain wo hamesha chalti hai, koi 15-min sleep ya cold start nahi. Proxy har visit note karta hai (har 10 min database mein save).
+- **7 din tak ek bhi visit nahi → Paused:** container band (RAM khaali), owner ko email. Image, env vars, domain, URL, history sab bache rehte hain. Visitors ko "paused" page dikhta hai; app **sirf owner ke Resume button** se wapas chalti hai (visit se apne aap nahi). Resume / naya deploy / push par auto-deploy = naya 7-din period.
+- **83 din → email** ("7 din baad archive hogi"), **90 din → Archived:** Docker image aur build output delete (disk khaali). Project, settings, env vars, domains aur subdomain hamesha rehte hain; **Redeploy** GitHub se dobara build karta hai (1–3 min). Project tab tak delete nahi hota jab tak user khud na kare.
+- **Archived app wapas kaise milega:** project page par **Restore** button. Wo GitHub se wahi repo/branch dobara build karta hai (env vars, domains, URL wahi). Repo rename/move hui ho to pehle **Settings → Repository** mein naya URL/branch daalo; repo delete ho gayi ho to Restore saaf error deta hai ki kya karna hai. Isliye users ko apni repo GitHub par rakhni chahiye (HostX archive ke baad code ki copy nahi rakhta).
+- **Static sites** kabhi pause/archive nahi hoti (unka koi server process nahi, kharcha na ke barabar). Archive sirf band padi app (paused/stopped/failed) ki hoti hai, aur hamesha warning email ke kam se kam 7 din baad.
+- Paid plans aur admins par ye kabhi lagu nahi. Settings: `HOSTX_FREE_PAUSE_DAYS`, `HOSTX_FREE_ARCHIVE_DAYS`, `HOSTX_FREE_WEB_SERVICES`, `HOSTX_FREE_STATIC_SITES` (aur `HOSTX_STARTER_*` / `HOSTX_PRO_*`).
 
 Har plan par apps **hamesha chalu** rehti hain: koi sleeping mode nahi (Render ke free tier ki tarah 15 min baad band nahi hoti). Free apps bhi 24 ghante server ki RAM leti hain, isliye server ka size users ke hisaab se rakho (`Free projects × 512 MB`).
 
-Sab env se badal sakte ho (`HOSTX_PRICE_STARTER`, `HOSTX_FREE_PROJECTS`, `HOSTX_PRO_MEMORY`, `HOSTX_STARTER_CPUS` ...; dekho `src/config/plans.ts`). **Billing tabhi on hoti hai jab Razorpay keys set hon.** Bina keys ke purana behaviour (HOSTX_MAX_PROJECTS, HOSTX_APP_MEMORY) waisa hi rehta hai. Admins par plan limits nahi lagti.
+Sab env se badal sakte ho (`HOSTX_PRICE_STARTER`, `HOSTX_FREE_WEB_SERVICES`, `HOSTX_PRO_MEMORY`, `HOSTX_STARTER_CPUS` ...; dekho `src/config/plans.ts`). **Billing tabhi on hoti hai jab Razorpay keys set hon.** Bina keys ke purana behaviour (HOSTX_MAX_PROJECTS, HOSTX_APP_MEMORY) waisa hi rehta hai. Admins par plan limits nahi lagti.
 
 - User **Billing** page → Upgrade → Razorpay ka hosted payment page (UPI autopay, card, netbanking). Plan sirf **signed webhook** aane par badalta hai (browser par bharosa nahi). Duplicate webhooks ignore hote hain.
 - Paid plans ke beech switch: same subscription update hota hai (Razorpay prorate karta hai). Cancel: paid period khatam hone tak plan rehta hai, phir Free.
@@ -310,7 +319,7 @@ Files: `.env.production.example`, `web/.env.example`, `deploy/hostx-engine.servi
 3. `cp .env.production.example .env` aur edit karo: `HOSTX_BASE_DOMAIN`, `HOSTX_SECRET` (lamba random), `HOSTX_PUBLIC_SCHEME=https`, `HOSTX_PUBLIC_PORT=443`, `HOSTX_WEB_ORIGIN=https://app.yourdomain.com`. `web/.env.local`: `NEXT_PUBLIC_API_URL=https://api.yourdomain.com` (build se pehle).
 4. `npm ci && npm run build` aur `cd web && npm ci && npm run build`.
 5. systemd units copy karo (`deploy/*.service`), `systemctl enable --now hostx-engine hostx-web`.
-6. **TLS**: Caddy (`deploy/Caddyfile`) — wildcard cert ke liye DNS-01 plugin wala build chahiye. Firewall: sirf 80/443 (+SSH) kholo; 3000/4000/8080 aur 5001-5999 public mat karo.
+6. **TLS**: Caddy (`deploy/Caddyfile`) — wildcard cert ke liye DNS-01 plugin wala build chahiye. Firewall: sirf 80/443 (+SSH) kholo; 3000/4000/8080 aur 5001-24999 public mat karo.
 7. Apne account banao, fir `HOSTX_ALLOW_SIGNUP=false` karke engine restart karo (agar public signup nahi chahiye).
 
 Security jo built-in hai: scrypt passwords, HS256 tokens, login rate-limit (IP + email), owner-only project access, container limits (`--memory/--memory-swap/--cpus/--pids-limit`, `--cap-drop=ALL`, `no-new-privileges`, non-root user), ports sirf `127.0.0.1` pe, API loopback pe (containers usse nahi pahunch sakte), git clone mein symlinks band, dashboard pe CSP/X-Frame-Options headers.

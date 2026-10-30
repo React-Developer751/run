@@ -260,7 +260,7 @@ p { margin: 0; }
 .stat { padding: 20px 22px; }
 .stat b { display: block; font-size: 32px; letter-spacing: -0.04em; font-weight: 700; }
 .stat span { color: var(--muted); font-size: 13.5px; }
-.grid-projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+.grid-projects { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 16px; }
 .project-card { display: flex; flex-direction: column; gap: 16px; padding: 22px; }
 .project-card header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .project-card h3 { font-size: 18px; margin-bottom: 4px; }
@@ -558,3 +558,7 @@ p { margin: 0; }
 .auth-or { display: flex; align-items: center; gap: 12px; color: var(--dim); font-size: 12.5px; margin: 18px 0 0; }
 .auth-or::before, .auth-or::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
 @media (max-width: 560px) { .type-grid { grid-template-columns: 1fr; } }
+
+/* Admin plan editor */
+.plan-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px 16px; }
+.plan-form .badge { margin-left: 6px; font-size: 10.5px; padding: 1px 7px; }

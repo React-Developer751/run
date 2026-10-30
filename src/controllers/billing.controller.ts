@@ -1,11 +1,11 @@
-import { PLANS, PLAN_IDS, isPlanId } from '../config/plans.js';
+import { PLAN_IDS, getPlan, isPlanId } from '../config/plans.js';
 import type { Ctx } from '../utils/http.js';
 import { HttpError } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { RateLimiter } from '../utils/rateLimit.js';
 import { AuthService } from '../services/auth.service.js';
 import { BillingService } from '../services/billing.service.js';
-import { Store, limitsFor } from '../services/store.service.js';
+import { Store, kindOf, limitsFor } from '../services/store.service.js';
 
 const limiter = new RateLimiter(10, 60 * 1000, 'Too many billing requests. Wait a moment.');
 const webhookLimiter = new RateLimiter(600, 60 * 1000);
@@ -16,7 +16,7 @@ export class BillingController {
     const buyable = BillingService.purchasable();
     return {
       enabled: BillingService.enabled(),
-      plans: PLAN_IDS.map((id) => ({ ...PLANS[id], available: id === 'free' || buyable.includes(id) })),
+      plans: PLAN_IDS.map((id) => ({ ...getPlan(id), available: id === 'free' || buyable.includes(id) })),
     };
   }
 
@@ -30,6 +30,9 @@ export class BillingController {
       limits: limitsFor(user),
       usage: {
         projects: projects.length,
+        webServices: projects.filter((p) => kindOf(p) === 'node').length,
+        staticSites: projects.filter((p) => kindOf(p) === 'static').length,
+        paused: projects.filter((p) => p.status === 'paused' || p.status === 'archived').length,
         customDomains: projects.reduce((n, p) => n + p.domains.length, 0),
       },
       subscription: sub ? { plan: sub.plan, status: sub.status, currentPeriodEnd: sub.currentPeriodEnd, paymentUrl: sub.status === 'created' ? sub.shortUrl : null } : null,

@@ -61,8 +61,16 @@ export interface Runner {
 }
 
 export class RunnerService {
-  private static docker = new DockerRunner();
-  private static process = new ProcessRunner();
+  // Created on first use: docker.service imports this module (via storage-monitor), so a field initializer could
+  // run before DockerRunner exists when a file imports docker.service first.
+  private static dockerRunner: DockerRunner | null = null;
+  private static processRunner: ProcessRunner | null = null;
+  private static get docker(): DockerRunner {
+    return (this.dockerRunner ??= new DockerRunner());
+  }
+  private static get process(): ProcessRunner {
+    return (this.processRunner ??= new ProcessRunner());
+  }
   private static dockerAvailable = false;
 
   static async init(): Promise<void> {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Nav } from '@/components/Nav';
-import { PlanCards } from '@/components/PlanCards';
+import { PlanCards, memoryLabel } from '@/components/PlanCards';
 import { api } from '@/lib/api';
 import { useRequireAuth } from '@/lib/auth';
 import type { BillingInfo, Plan } from '@/lib/types';
@@ -50,7 +50,12 @@ export default function BillingPage() {
   const waiting = info?.subscription?.status === 'created';
   useEffect(() => {
     if (!waiting) return;
-    const t = setInterval(load, 5000);
+    // Every 5 s for 5 minutes; after that a reload of the page checks again.
+    let n = 0;
+    const t = setInterval(() => {
+      if (++n > 60) clearInterval(t);
+      else void load();
+    }, 5000);
     return () => clearInterval(t);
   }, [waiting, load]);
 
@@ -110,10 +115,14 @@ export default function BillingPage() {
             <div className="grid-2" style={{ marginBottom: 28 }}>
               <div className="card stack">
                 <h3 style={{ fontSize: 17 }}>Usage</h3>
-                <Usage label="Projects" used={info.usage.projects} max={info.limits.projects} />
+                <Usage label="Web Services" used={info.usage.webServices} max={info.limits.webServices} />
+                <Usage label="Static Sites" used={info.usage.staticSites} max={info.limits.staticSites} />
                 <Usage label="Custom domains" used={info.usage.customDomains} max={info.limits.customDomains} />
                 <p className="muted" style={{ fontSize: 13.5 }}>
-                  Each app: {info.limits.memory} RAM, {info.limits.cpus} CPU. Apps stay on all the time.
+                  Each app: {memoryLabel(info.limits.memory)} RAM, {info.limits.cpus} CPU.{' '}
+                  {info.limits.pauseAfterDays !== null
+                    ? `Web services run all the time while people use them; one with no visits for ${info.limits.pauseAfterDays} days is paused (resume in one click)${info.limits.archiveAfterDays !== null ? `, and archived after ${info.limits.archiveAfterDays} days` : ''}. Static sites are never paused.`
+                    : 'Apps are never paused.'}
                 </p>
               </div>
               <div className="card stack">

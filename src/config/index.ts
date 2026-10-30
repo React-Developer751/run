@@ -129,7 +129,8 @@ export const config = {
   // Public URL of the API, shown to users as the GitHub webhook target.
   apiPublicUrl: (env.HOSTX_API_PUBLIC_URL ?? `http://localhost:${num(env.HOSTX_API_PORT, 4000)}`).replace(/\/+$/, ''),
 
-  portRange: { min: 5001, max: 5999 },
+  // Loopback ports for apps (one per running web service / Docker site). Configurable; 20k by default.
+  portRange: { min: num(env.HOSTX_PORT_MIN, 5001), max: num(env.HOSTX_PORT_MAX, 24999) },
 
   // Razorpay subscriptions. Billing (and plan limits) are on only when key, secret and webhook secret are set.
   razorpay: {

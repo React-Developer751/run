@@ -22,7 +22,7 @@ export function AtlasGuide({ project, serverIp, onUseEnv, flash }: { project: Pr
       <div>
         <h3 style={{ fontSize: 18 }}>MongoDB with Atlas</h3>
         <p className="muted" style={{ marginTop: 6 }}>
-          Use your own free MongoDB Atlas database: it is the real MongoDB, backed up by MongoDB, and your data stays in your account.
+          Use your own free MongoDB Atlas database: it is the real MongoDB, and your data stays in your account.
           Your app reads the connection string from an environment variable.
         </p>
       </div>

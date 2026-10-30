@@ -43,7 +43,7 @@ export interface CapacityUsage {
   /** Apps currently live, and all projects. */
   liveApps: number;
   projects: number;
-  /** App ports in use (HOSTX ports 5001-5999). */
+  /** App ports in use (HOSTX_PORT_MIN-HOSTX_PORT_MAX, default 5001-24999). */
   ports: { used: number; total: number; usedPercent: number };
   /** Project networks in Docker (one per project) against HOSTX_NETWORK_CAPACITY. Null without Docker. */
   networks: { used: number; total: number; usedPercent: number } | null;
@@ -158,7 +158,7 @@ export class StorageMonitorService {
       networks,
     };
     const checks: Array<[string, { used: number; total: number; usedPercent: number } | null, string]> = [
-      ['ports', capacity.ports, 'app ports (5001-5999)'],
+      ['ports', capacity.ports, `app ports (${config.portRange.min}-${config.portRange.max})`],
       ['networks', networks, 'Docker app networks'],
     ];
     for (const [key, c, label] of checks) {

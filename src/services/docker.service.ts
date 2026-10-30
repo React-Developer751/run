@@ -308,7 +308,7 @@ export class DockerRunner implements Runner {
     const keep = new Set(
       Store.deploymentsOf(previous.id)
         .filter((d) => d.status === 'live' && d.image)
-        .slice(0, config.limits.rollbackImages)
+        .slice(0, limitsFor(Store.getUserById(previous.userId)).rollbackImages + 1)
         .map((d) => d.image as string),
     );
     if (current.image) keep.add(current.image);

@@ -16,7 +16,7 @@ import { useRequireAuth } from '@/lib/auth';
 import { repoLabel, timeAgo, triggerLabel } from '@/lib/format';
 import type { BuildConfig, Deployment, Project, ProjectEvent } from '@/lib/types';
 
-const EVENT_ICON: Record<ProjectEvent['kind'], string> = { crash: '🔴', restart: '🟠', recovered: '🟢', rollback: '↩️' };
+const EVENT_ICON: Record<ProjectEvent['kind'], string> = { crash: '🔴', restart: '🟠', recovered: '🟢', rollback: '↩️', paused: '⏸️', archived: '📦' };
 
 type Tab = 'deployments' | 'runtime' | 'env' | 'domains' | 'database' | 'settings';
 const TABS: Array<{ id: Tab; label: string }> = [
@@ -41,10 +41,13 @@ function BuildLogs({ projectId, deployment, onFinished }: { projectId: string; d
     let timer: ReturnType<typeof setTimeout>;
     setLines([]);
 
+    // Server errors (engine restarting) back off up to 15 s instead of hammering it every second.
+    let failures = 0;
     const tick = async () => {
       try {
         const r = await api.deploymentLogs(projectId, deployment.id, next);
         if (cancelled) return;
+        failures = 0;
         next = r.next;
         if (r.lines.length) setLines((prev) => [...prev, ...r.lines]);
         setStatus(r.status);
@@ -59,8 +62,9 @@ function BuildLogs({ projectId, deployment, onFinished }: { projectId: string; d
           if (!cancelled) setLines((prev) => [...prev, `[hostx] Could not load the log: ${(e as Error).message}`]);
           return;
         }
+        failures++;
       }
-      timer = setTimeout(tick, 1000);
+      timer = setTimeout(tick, failures ? Math.min(15_000, 1000 * 2 ** failures) : 1000);
     };
     void tick();
     return () => {
@@ -87,6 +91,8 @@ export default function ProjectPage() {
   const [envRows, setEnvRows] = useState<EnvRow[]>([]);
   const [envDirty, setEnvDirty] = useState(false);
   const [name, setName] = useState('');
+  const [repoInput, setRepoInput] = useState('');
+  const [branchInput, setBranchInput] = useState('');
   const [cfg, setCfg] = useState<BuildConfig | null>(null);
   const [cfgInitial, setCfgInitial] = useState<BuildConfig | null>(null);
   const [runtimeLogs, setRuntimeLogs] = useState<string[]>([]);
@@ -127,6 +133,8 @@ export default function ProjectPage() {
       seeded.current = true;
       setEnvRows(rowsFromEnv(project.env));
       setName(project.name);
+      setRepoInput(project.repoUrl.replace(/\.git$/, ''));
+      setBranchInput(project.branch ?? '');
       const initial: BuildConfig = {
         rootDir: project.rootDir,
         kind: project.config.kind ?? project.kind ?? 'node',
@@ -140,6 +148,10 @@ export default function ProjectPage() {
   }, [project]);
 
   const deploying = project ? isBusy(project.status) : false;
+
+  useEffect(() => {
+    if (project) document.title = `${project.name} · HostX`;
+  }, [project?.name]);
   useEffect(() => {
     if (!deploying) return;
     const t = setInterval(load, 2000);
@@ -226,11 +238,11 @@ export default function ProjectPage() {
             <button className="btn" onClick={redeploy} disabled={deploying || busy !== ''}>
               {busy === 'deploy' ? <span className="spinner" /> : <Icon name="refresh" />} Redeploy
             </button>
-            {project.status === 'stopped' || project.status === 'crashed' ? (
-              <button className="btn" disabled={busy !== ''} onClick={() => act('start', () => api.start(id), 'App started')}>
-                {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} {project.status === 'crashed' ? 'Restart' : 'Start'}
+            {project.status === 'stopped' || project.status === 'crashed' || project.status === 'paused' ? (
+              <button className="btn" disabled={busy !== ''} onClick={() => act('start', () => api.start(id), project.status === 'paused' ? 'App resumed' : 'App started')}>
+                {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} {project.status === 'crashed' ? 'Restart' : project.status === 'paused' ? 'Resume' : 'Start'}
               </button>
-            ) : (
+            ) : project.status === 'archived' ? null : (
               <button className="btn" disabled={deploying || busy !== '' || project.status === 'failed'} onClick={() => act('stop', () => api.stop(id), 'App stopped')}>
                 {busy === 'stop' ? <span className="spinner" /> : <Icon name="stop" />} Stop
               </button>
@@ -239,6 +251,29 @@ export default function ProjectPage() {
         </div>
 
         {error && <div className="error-box" style={{ marginBottom: 20 }}>{error}</div>}
+        {project.status === 'paused' && (
+          <div className="notice-box" style={{ marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <span>
+              <b>Paused</b> because it had no visitors for a while (Free plan). Nothing was deleted — your settings, environment variables and
+              URL are all here. Visitors see a &ldquo;paused&rdquo; page until you resume it. <a href="/billing">Paid plans</a> are never paused.
+            </span>
+            <button className="btn btn-primary btn-sm" disabled={busy !== ''} onClick={() => act('start', () => api.start(id), 'App resumed')}>
+              {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} Resume
+            </button>
+          </div>
+        )}
+        {project.status === 'archived' && (
+          <div className="notice-box" style={{ marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <span>
+              <b>Archived</b> after a long time without visitors, to free server space. Your settings, environment variables, domains and URL
+              are all kept. <b>Restore</b> rebuilds it from <span className="mono">{project.repoUrl.replace(/^https:\/\/github\.com\//, '').replace(/\.git$/, '')}</span>
+              {project.branch ? ` (${project.branch})` : ''} in 1–3 minutes. Repository moved or renamed? Update it in Settings first.
+            </span>
+            <button className="btn btn-primary btn-sm" disabled={busy !== ''} onClick={redeploy}>
+              {busy === 'deploy' ? <span className="spinner" /> : <Icon name="refresh" />} Restore
+            </button>
+          </div>
+        )}
         {project.status === 'crashed' && (
           <div className="error-box" style={{ marginBottom: 20 }}>
             This app crashed and is not serving traffic. Check <button className="link-btn" onClick={() => setTab('runtime')}>Runtime logs</button>, then restart, redeploy or roll back to an earlier version.
@@ -381,6 +416,34 @@ export default function ProjectPage() {
               <div><button className="btn" disabled={busy !== '' || name.trim() === project.name || name.trim().length < 2} onClick={() => act('rename', () => api.updateProject(id, { name: name.trim() }), 'Renamed')}>Save name</button></div>
             </div>
 
+            <div className="card stack">
+              <div>
+                <h3 style={{ fontSize: 18 }}>Repository</h3>
+                <p className="muted" style={{ marginTop: 6 }}>Where HostX gets the code. Change it if the repository was renamed or moved; the next deploy uses it.</p>
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="repo-url">GitHub repository</label>
+                <input id="repo-url" className="input mono" value={repoInput} onChange={(e) => setRepoInput(e.target.value)} spellCheck={false} />
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="repo-branch">Branch</label>
+                <input id="repo-branch" className="input mono" value={branchInput} onChange={(e) => setBranchInput(e.target.value)} placeholder="default branch" spellCheck={false} />
+              </div>
+              <div>
+                <button
+                  className="btn"
+                  disabled={busy !== '' || deploying || (repoInput.trim() === project.repoUrl.replace(/\.git$/, '') && branchInput.trim() === (project.branch ?? ''))}
+                  onClick={() => act('repo', async () => {
+                    const r = await api.updateProject(id, { repoUrl: repoInput.trim(), branch: branchInput.trim() || null });
+                    setRepoInput(r.project.repoUrl.replace(/\.git$/, ''));
+                    setBranchInput(r.project.branch ?? '');
+                  }, 'Repository saved — deploy to use it')}
+                >
+                  {busy === 'repo' ? <span className="spinner" /> : 'Save repository'}
+                </button>
+              </div>
+            </div>
+
             {cfg && cfgInitial && (
               <div className="card stack">
                 <div>
@@ -416,7 +479,7 @@ export default function ProjectPage() {
                 <input
                   type="checkbox"
                   checked={project.autoDeploy}
-                  disabled={busy !== ''}
+                  disabled={busy !== '' || deploying}
                   onChange={(e) => act('auto', () => api.updateProject(id, { autoDeploy: e.target.checked }), e.target.checked ? 'Auto-deploy on' : 'Auto-deploy off')}
                 />
                 <span>

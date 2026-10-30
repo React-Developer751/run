@@ -14,13 +14,13 @@ import {
 } from '../utils/validator.js';
 import { AuthService } from '../services/auth.service.js';
 import { ClonerService } from '../services/cloner.service.js';
-import { DeployService } from '../services/deploy.service.js';
+import { DeployService, assertCanStart, assertCanStop } from '../services/deploy.service.js';
 import { GitHubService } from '../services/github.service.js';
 import { DeployLog } from '../services/log.service.js';
 import { DomainService } from '../services/domain.service.js';
 import { billingEnabled } from '../config/plans.js';
 import { RunnerService } from '../services/runner.service.js';
-import { Store, type Deployment, type Project } from '../services/store.service.js';
+import { Store, assertRoomFor, kindOf, limitsFor, type Deployment, type Project } from '../services/store.service.js';
 
 export const toPublicProject = (p: Project) => ({
   id: p.id,
@@ -66,7 +66,7 @@ function rollbackTargets(p: Project): Set<string> {
   if (p.runtime !== 'docker') return new Set();
   const kept = Store.deploymentsOf(p.id)
     .filter((d) => d.status === 'live' && d.image)
-    .slice(0, config.limits.rollbackImages);
+    .slice(0, limitsFor(Store.getUserById(p.userId)).rollbackImages + 1); // + the one serving now
   return new Set(kept.filter((d) => d.id !== p.liveDeploymentId).map((d) => d.id));
 }
 
@@ -177,10 +177,28 @@ export class DeployController {
     if (body.env !== undefined) patch.env = validateEnv(body.env);
     if (body.autoDeploy !== undefined) patch.autoDeploy = body.autoDeploy === true;
     if (body.rootDir !== undefined) patch.rootDir = validateRootDir(body.rootDir);
-    if (body.kind !== undefined) patch.kindPref = validateKind(body.kind);
+    if (body.kind !== undefined) {
+      patch.kindPref = validateKind(body.kind);
+      // Switching a static site to a web service (or back, or to "auto") must still fit the plan's per-type limits.
+      const next = kindOf({ kindPref: patch.kindPref, kind: project.kind });
+      if (next !== kindOf(project)) assertRoomFor(project.userId, next, project.id);
+    }
     if (body.buildCommand !== undefined) patch.buildCommand = validateCommand(body.buildCommand, 'buildCommand');
     if (body.startCommand !== undefined) patch.startCommand = validateCommand(body.startCommand, 'startCommand');
     if (body.outputDir !== undefined) patch.outputDir = validateOutputDir(body.outputDir);
+    // Moving the project to another repository/branch (e.g. the repo was renamed or moved before restoring it).
+    if (body.repoUrl !== undefined) {
+      const { url } = validateRepoUrl(body.repoUrl);
+      if (url !== project.repoUrl) {
+        patch.repoUrl = url;
+        patch.githubInstallationId = await GitHubService.installationFor(AuthService.requireUser(ctx.user), url);
+        patch.lastRemoteCommit = null;
+      }
+    }
+    if (body.branch !== undefined) {
+      patch.branch = validateBranch(body.branch);
+      if (patch.branch !== project.branch) patch.lastRemoteCommit = null;
+    }
     if (project.status === 'deploying' && Object.keys(patch).some((k) => k !== 'name' && k !== 'env')) {
       throw new HttpError(409, 'Wait for the current deployment to finish before changing build settings');
     }
@@ -214,14 +232,14 @@ export class DeployController {
 
   static async stop(ctx: Ctx) {
     const project = ownedProject(ctx);
-    if (project.status === 'deploying') throw new HttpError(409, 'Wait for the deployment to finish first');
+    assertCanStop(project);
     await DeployService.stop(project);
     return { project: toPublicProject(project) };
   }
 
   static async start(ctx: Ctx) {
     const project = ownedProject(ctx);
-    if (project.status === 'deploying') throw new HttpError(409, 'A deployment is in progress');
+    assertCanStart(project);
     await DeployService.start(project);
     return { project: toPublicProject(project) };
   }

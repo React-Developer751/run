@@ -38,7 +38,10 @@ export default async function PricingPage() {
         <div className="section-head" style={{ marginBottom: 40 }}>
           <span className="tag">Pricing</span>
           <h1 style={{ fontSize: 'clamp(30px, 4.2vw, 48px)' }}>Start free. <span className="serif grad-text">Upgrade when it matters.</span></h1>
-          <p>Every plan keeps your apps running 24/7 — nothing ever sleeps. Pay monthly with UPI, cards or netbanking and cancel any time.</p>
+          <p>
+            No 15-minute sleep and no cold starts on any plan. Free web services pause only after 7 days with zero visitors (one-click resume); static sites
+            and paid apps never pause. Pay monthly with UPI, cards or netbanking and cancel any time.
+          </p>
         </div>
         {plans ? (
           <PlanCards

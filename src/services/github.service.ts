@@ -311,6 +311,17 @@ export class GitHubService {
     return out;
   }
 
+  /** The user's installation that can read `repoUrl`, or null (then it is cloned as a public repository). */
+  static async installationFor(user: User, repoUrl: string): Promise<number | null> {
+    if (!this.enabled() || !user.github) return null;
+    const fullName = /^https:\/\/github\.com\/(.+?)\.git$/.exec(repoUrl)?.[1]?.toLowerCase();
+    for (const id of user.github.installationIds) {
+      const repos = await this.installationRepos(id).catch(() => []);
+      if (repos.some((r) => r.fullName.toLowerCase() === fullName)) return id;
+    }
+    return null;
+  }
+
   /** Checks that `user` may deploy `repoUrl` through `installationId`. Returns the id to store on the project. */
   static async authorizeRepo(user: User, installationId: unknown, repoUrl: string): Promise<number | null> {
     if (installationId === undefined || installationId === null || installationId === '') return null;

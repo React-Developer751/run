@@ -1,14 +1,16 @@
 import type { Plan, PlanId } from '@/lib/types';
 
-const memoryLabel = (m: string) => m.replace(/m$/i, ' MB').replace(/g$/i, ' GB');
+export const memoryLabel = (m: string) => m.replace(/m$/i, ' MB').replace(/g$/i, ' GB');
 
 function features(p: Plan): string[] {
   return [
-    `${p.projects} project${p.projects === 1 ? '' : 's'} (sites + services)`,
+    `${p.webServices} Web Services (Node / Express APIs)`,
+    `${p.staticSites} Static Sites (React / Vite)`,
     `${memoryLabel(p.memory)} RAM · ${p.cpus} CPU per app`,
     'Works with MongoDB Atlas (free tier)',
     `${p.customDomains} custom domain${p.customDomains === 1 ? '' : 's'} with free SSL`,
-    'Always on — apps never sleep',
+    p.pauseAfterDays === null ? 'Always on — never paused' : `Static sites always on; web services paused after ${p.pauseAfterDays} days with no visits (one-click resume)`,
+    `Rollback to the last ${p.rollbackImages} version${p.rollbackImages === 1 ? '' : 's'}`,
     'Auto-deploy from GitHub, private repos',
     'Free HTTPS subdomain',
   ];

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { config } from '../config/index.js';
-import { PLANS, billingEnabled, type PlanId } from '../config/plans.js';
+import { billingEnabled, getPlan, razorpayPlanId, type PlanId } from '../config/plans.js';
 import { HttpError } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { RunnerService } from './runner.service.js';
@@ -47,12 +47,13 @@ export class BillingService {
   }
 
   private static planIdFor(plan: PlanId): string {
-    return plan === 'free' ? '' : config.razorpay.planIds[plan];
+    return razorpayPlanId(plan);
   }
 
   private static planFromRazorpay(planId: string): PlanId | null {
-    if (planId && planId === config.razorpay.planIds.starter) return 'starter';
-    if (planId && planId === config.razorpay.planIds.pro) return 'pro';
+    // Current ids first; then the env ids, so subscriptions created before an admin switched plan ids still map.
+    for (const id of ['starter', 'pro'] as PlanId[]) if (planId && planId === razorpayPlanId(id)) return id;
+    for (const id of ['starter', 'pro'] as const) if (planId && planId === config.razorpay.planIds[id]) return id;
     return null;
   }
 
@@ -75,7 +76,7 @@ export class BillingService {
       throw new HttpError(409, `Your current plan stays active${until}. You can choose a new plan once it ends.`);
     }
     if (sub && ['active', 'pending'].includes(sub.status)) {
-      if (sub.plan === plan) throw new HttpError(409, `You are already on ${PLANS[plan].name}`);
+      if (sub.plan === plan) throw new HttpError(409, `You are already on ${getPlan(plan).name}`);
       // Switch an active subscription in place; Razorpay prorates and the webhook applies the new plan.
       await this.api(`/subscriptions/${sub.id}`, 'PATCH', { plan_id: planId, schedule_change_at: 'now', customer_notify: 1 });
       await this.saveSubscription(user, { ...sub, updatedAt: new Date().toISOString() });
@@ -107,8 +108,13 @@ export class BillingService {
   }
 
   /** Cancels at the end of the paid period: the plan stays until then, then the webhook moves the user to Free. */
+  /** Razorpay API keys present: enough to cancel, even if plans were switched off later. */
+  static hasKeys(): boolean {
+    return Boolean(config.razorpay.keyId && config.razorpay.keySecret);
+  }
+
   static async cancel(user: User): Promise<void> {
-    this.requireEnabled();
+    if (!this.hasKeys()) throw new HttpError(503, 'Billing is not configured on this server');
     const sub = user.subscription;
     if (!sub || !['active', 'pending', 'created'].includes(sub.status)) throw new HttpError(409, 'You have no active subscription');
     if (sub.status === 'created') {
@@ -123,7 +129,7 @@ export class BillingService {
   /** Account deletion: stop charging right away (no further renewals), whatever state the subscription is in. */
   static async cancelNow(user: User): Promise<void> {
     const sub = user.subscription;
-    if (!sub || !this.enabled() || !['created', 'active', 'pending', 'cancelling'].includes(sub.status)) return;
+    if (!sub || !this.hasKeys() || !['created', 'active', 'pending', 'cancelling'].includes(sub.status)) return;
     await this.api(`/subscriptions/${sub.id}/cancel`, 'POST', { cancel_at_cycle_end: 0 });
     await this.saveSubscription(user, null);
   }
@@ -194,6 +200,21 @@ export class BillingService {
       default:
         return 'ignored';
     }
+  }
+
+  /** After an admin changed a plan's RAM/CPU: resize the running containers of everyone on that plan. */
+  static async applyPlanLimits(plan: PlanId): Promise<number> {
+    let resized = 0;
+    for (const user of Store.allUsers()) {
+      if (user.plan !== plan) continue;
+      const limits = limitsFor(user);
+      for (const p of Store.projectsOf(user.id)) {
+        if (p.runtime !== 'docker') continue;
+        await RunnerService.for(p).updateLimits?.(p, limits.memory, limits.cpus).catch((err) => logger.warn(`Could not resize ${p.slug}`, err));
+        resized++;
+      }
+    }
+    return resized;
   }
 
   /** Changes the plan and applies the new memory/CPU limits to running containers right away. */

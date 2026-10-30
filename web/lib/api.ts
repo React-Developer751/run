@@ -1,4 +1,4 @@
-import type { AdminNotification, StorageReport, AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
+import type { SettingsPatch, AdminNotification, StorageReport, AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 /** Engine URL, for full-page navigations such as "Continue with GitHub". */
@@ -102,7 +102,7 @@ export const api = {
     input: Partial<BuildConfig> & { repoUrl: string; branch?: string; name: string; env: Record<string, string>; autoDeploy?: boolean; githubInstallationId?: number },
   ) => request<{ project: Project; deployment: Deployment }>('/api/projects', 'POST', input),
   project: (id: string) => request<{ project: Project; deployments: Deployment[] }>(`/api/projects/${id}`),
-  updateProject: (id: string, patch: Partial<BuildConfig> & { name?: string; env?: Record<string, string>; autoDeploy?: boolean }) =>
+  updateProject: (id: string, patch: Partial<BuildConfig> & { name?: string; env?: Record<string, string>; autoDeploy?: boolean; repoUrl?: string; branch?: string | null }) =>
     request<{ project: Project }>(`/api/projects/${id}`, 'PATCH', patch),
   redeploy: (id: string) => request<{ deployment: Deployment }>(`/api/projects/${id}/deploy`, 'POST', {}),
   stop: (id: string) => request<{ project: Project }>(`/api/projects/${id}/stop`, 'POST', {}),
@@ -138,7 +138,7 @@ export const api = {
     runtimeLogs: (id: string) => request<{ logs: string }>(`/api/admin/projects/${id}/logs`),
     deployments: () => request<{ deployments: AdminDeployment[] }>('/api/admin/deployments?limit=100'),
     settings: () => request<{ settings: PlatformSettings }>('/api/admin/settings'),
-    updateSettings: (patch: Partial<PlatformSettings>) => request<{ settings: PlatformSettings }>('/api/admin/settings', 'PATCH', patch),
+    updateSettings: (patch: SettingsPatch) => request<{ settings: PlatformSettings }>('/api/admin/settings', 'PATCH', patch),
     audit: () => request<{ entries: AuditEntry[] }>('/api/admin/audit?limit=200'),
     notifications: (limit = 200) => request<{ unread: number; notifications: AdminNotification[] }>(`/api/admin/notifications?limit=${limit}`),
     readNotifications: (ids?: string[]) => request<{ marked: number }>('/api/admin/notifications/read', 'POST', ids ? { ids } : {}),

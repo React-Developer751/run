@@ -36,7 +36,9 @@ export default function Dashboard() {
   if (!user) return <><Nav variant="app" /><div className="center-screen"><span className="spinner" /></div></>;
 
   const live = projects?.filter((p) => p.status === 'live').length ?? 0;
-  const failed = projects?.filter((p) => p.status === 'failed').length ?? 0;
+  const failed = projects?.filter((p) => p.status === 'failed' || p.status === 'crashed').length ?? 0;
+  const paused = projects?.filter((p) => p.status === 'paused').length ?? 0;
+  const archived = projects?.filter((p) => p.status === 'archived').length ?? 0;
 
   return (
     <>
@@ -64,6 +66,16 @@ export default function Dashboard() {
         ) : (
           projects && (
             <>
+              {paused > 0 && (
+                <div className="notice-box" style={{ marginBottom: 16 }}>
+                  {paused} app{paused > 1 ? 's are' : ' is'} paused because nobody visited {paused > 1 ? 'them' : 'it'} for a while. Open the project and click Resume to bring it back in seconds.
+                </div>
+              )}
+              {archived > 0 && (
+                <div className="notice-box" style={{ marginBottom: 16 }}>
+                  {archived} app{archived > 1 ? 's were' : ' was'} archived after a long time without visits. Settings, env vars and URL are kept: open the project and click Restore to rebuild it from GitHub.
+                </div>
+              )}
               <div className="stats">
                 <div className="card stat"><b>{projects.length}</b><span>Projects</span></div>
                 <div className="card stat"><b style={{ color: 'var(--ok)' }}>{live}</b><span>Live</span></div>
@@ -81,7 +93,7 @@ export default function Dashboard() {
                       <StatusBadge status={p.status} />
                     </header>
                     <div className="project-meta">
-                      <span className="tag">{p.framework ?? 'Detecting…'}</span>
+                      <span className="tag">{p.framework ?? (p.status === 'deploying' ? 'Detecting…' : p.kind === 'static' ? 'Static' : 'Node.js')}</span>
                       {p.kind && <span className="tag">{p.kind === 'static' ? 'Static site' : 'Web service'}</span>}
                       <span><Icon name="branch" className="icon" /> {repoLabel(p.repoUrl)}</span>
                     </div>
