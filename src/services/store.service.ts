@@ -5,7 +5,7 @@ import { logger } from '../utils/logger.js';
 import { DeployLog } from './log.service.js';
 import { Vault } from './vault.service.js';
 
-export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped';
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
 export type ProjectKind = 'static' | 'node';
 export type RuntimeKind = 'docker' | 'process' | 'static';
@@ -101,6 +101,10 @@ export interface Project {
   database: ProjectDatabase | null;
   /** GitHub App installation used to clone (private repos). null = public clone. */
   githubInstallationId: number | null;
+  /** Deployment whose build is serving traffic right now (changes on success and on rollback). */
+  liveDeploymentId: string | null;
+  /** Newest commit HostX has seen on the branch. Auto-deploy compares against it, so a rollback is not undone by polling. */
+  lastRemoteCommit: string | null;
   currentDeploymentId: string | null;
   commit: string | null;
   createdAt: string;
@@ -118,9 +122,14 @@ export interface Deployment {
   id: string;
   projectId: string;
   status: DeploymentStatus;
-  trigger: 'create' | 'redeploy' | 'auto';
+  trigger: 'create' | 'redeploy' | 'auto' | 'rollback';
   commit: string | null;
   error: string | null;
+  /** Docker image this deployment produced (kept for the latest few, so it can be rolled back to). */
+  image: string | null;
+  kind: ProjectKind | null;
+  /** For rollbacks: the deployment whose image was restored. */
+  rollbackOf: string | null;
   createdAt: string;
   finishedAt: string | null;
 }
@@ -133,11 +142,21 @@ interface Database {
   audit: AuditEntry[];
   sessions: Session[];
   tokens: OneTimeToken[];
+  events: ProjectEvent[];
+}
+
+/** Runtime incident shown on the project page (crash, automatic restart, recovery, rollback). */
+export interface ProjectEvent {
+  id: string;
+  projectId: string;
+  at: string;
+  kind: 'crash' | 'restart' | 'recovered' | 'rollback';
+  message: string;
 }
 
 /** Small JSON-file database: in-memory reads, atomic serialized writes. No third-party packages. */
 export class Store {
-  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [] };
+  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [], events: [] };
   private static queue: Promise<void> = Promise.resolve();
 
   static async init(): Promise<void> {
@@ -160,6 +179,7 @@ export class Store {
         audit: parsed.audit ?? [],
         sessions: parsed.sessions ?? [],
         tokens: parsed.tokens ?? [],
+        events: parsed.events ?? [],
         projects: (parsed.projects ?? []).map((p) => ({
           ...p,
           kindPref: p.kindPref ?? null,
@@ -170,8 +190,10 @@ export class Store {
           webhookSecret: p.webhookSecret ?? crypto.randomBytes(24).toString('hex'),
           database: p.database ?? null,
           githubInstallationId: p.githubInstallationId ?? null,
+          liveDeploymentId: p.liveDeploymentId ?? null,
+          lastRemoteCommit: p.lastRemoteCommit ?? null,
         })),
-        deployments: parsed.deployments ?? [],
+        deployments: (parsed.deployments ?? []).map((d) => ({ ...d, image: d.image ?? null, kind: d.kind ?? null, rollbackOf: d.rollbackOf ?? null })),
       };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
@@ -370,7 +392,27 @@ export class Store {
     for (const d of this.db.deployments.filter((x) => x.projectId === id)) await DeployLog.remove(d.id);
     this.db.deployments = this.db.deployments.filter((d) => d.projectId !== id);
     this.db.projects = this.db.projects.filter((p) => p.id !== id);
+    this.db.events = this.db.events.filter((e) => e.projectId !== id);
     await this.save();
+  }
+
+  // ── runtime events ─────────────────────────────────────
+  static async addEvent(projectId: string, kind: ProjectEvent['kind'], message: string): Promise<void> {
+    this.db.events.unshift({ id: this.newId('e'), projectId, at: new Date().toISOString(), kind, message });
+    // 50 per project, 5000 overall.
+    const seen = new Map<string, number>();
+    this.db.events = this.db.events
+      .filter((e) => {
+        const n = (seen.get(e.projectId) ?? 0) + 1;
+        seen.set(e.projectId, n);
+        return n <= 50;
+      })
+      .slice(0, 5000);
+    await this.save();
+  }
+
+  static eventsOf(projectId: string, limit = 50): ProjectEvent[] {
+    return this.db.events.filter((e) => e.projectId === projectId).slice(0, limit);
   }
 
   // ── deployments ────────────────────────────────────────

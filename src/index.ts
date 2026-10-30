@@ -8,6 +8,7 @@ import { AutoDeployService } from './services/autodeploy.service.js';
 import { AuthService } from './services/auth.service.js';
 import { DeployService } from './services/deploy.service.js';
 import { MongoService } from './services/mongo.service.js';
+import { MonitorService } from './services/monitor.service.js';
 import { ProxyService } from './services/proxy.service.js';
 import { RunnerService } from './services/runner.service.js';
 import { Store } from './services/store.service.js';
@@ -51,7 +52,10 @@ async function main(): Promise<void> {
     logger.info(`[HostX Proxy] ${projectUrl('<app>')}  (listening on :${config.proxyPort})`);
   });
 
-  void DeployService.recover().then(() => AutoDeployService.start());
+  void DeployService.recover().then(() => {
+    AutoDeployService.start();
+    MonitorService.start();
+  });
 
   // Deployed apps are detached from HostX, so stopping the engine never takes them down.
   const shutdown = () => {

@@ -108,6 +108,8 @@ export const config = {
     cloneTimeoutMs: 2 * 60 * 1000,
     startTimeoutMs: 60 * 1000,
     deploymentsKept: 15,
+    // Images of this many recent successful deployments are kept on disk for one-click rollback.
+    rollbackImages: 3,
     maxLogBytes: 2 * 1024 * 1024,
   },
 

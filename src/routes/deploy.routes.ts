@@ -20,6 +20,8 @@ export function registerDeployRoutes(router: Router): void {
   router.delete('/api/projects/:id/database', DeployController.deleteDatabase);
 
   router.get('/api/projects/:id/deployments/:did/logs', DeployController.deploymentLogs);
+  router.post('/api/projects/:id/deployments/:did/rollback', DeployController.rollback);
+  router.get('/api/projects/:id/events', DeployController.events);
   router.post('/api/webhooks/github/:id', WebhookController.github);
   router.get('/api/projects/:id/logs', DeployController.runtimeLogs);
 

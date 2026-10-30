@@ -7,7 +7,7 @@ import { killGroup, run } from '../utils/exec.js';
 import { PortService } from './port.service.js';
 import { runtimeLogPath, tailFile } from './log.service.js';
 import { installCommand, type Detection } from './detect.service.js';
-import type { DeployContext, Runner, RuntimePatch } from './runner.service.js';
+import type { AppHealth, DeployContext, Runner, RuntimePatch } from './runner.service.js';
 import type { Project } from './store.service.js';
 
 const staticPath = (p: Project) => path.join(config.staticDir, p.id);
@@ -150,6 +150,10 @@ export class ProcessRunner implements Runner {
   async isAlive(project: Project): Promise<boolean> {
     if (project.runtime === 'static') return fs.access(staticPath(project)).then(() => true, () => false);
     return project.pid !== null && isPidAlive(project.pid);
+  }
+
+  async health(project: Project): Promise<AppHealth> {
+    return { running: await this.isAlive(project), restartCount: 0, exitCode: null, oomKilled: false };
   }
 
   async runtimeLogs(project: Project, lines: number): Promise<string> {

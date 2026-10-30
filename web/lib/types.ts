@@ -1,4 +1,4 @@
-export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped';
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
 
 export interface User {
@@ -34,16 +34,29 @@ export interface Project {
   status: ProjectStatus;
   commit: string | null;
   currentDeploymentId: string | null;
+  /** Deployment whose build is serving traffic. */
+  liveDeploymentId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProjectEvent {
+  id: string;
+  at: string;
+  kind: 'crash' | 'restart' | 'recovered' | 'rollback';
+  message: string;
 }
 
 export interface Deployment {
   id: string;
   status: DeploymentStatus;
-  trigger: 'create' | 'redeploy' | 'auto';
+  trigger: 'create' | 'redeploy' | 'auto' | 'rollback';
   commit: string | null;
   error: string | null;
+  /** Rollbacks: the deployment that was restored. */
+  rollbackOf?: string | null;
+  /** Its image is still kept, so it can be put back live in seconds. */
+  canRollback?: boolean;
   createdAt: string;
   finishedAt: string | null;
 }

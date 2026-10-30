@@ -199,6 +199,12 @@ export class MailService {
     return this.send({ to, subject: 'Confirm your HostX email address', ...body });
   }
 
+  /** Incident about one of the user's apps (crash, failed auto-deploy). */
+  static appAlert(to: string, name: string, title: string, message: string, url: string): Promise<boolean> {
+    const body = layout(title, `Hi ${name}, ${message}`, { label: 'Open the project', url }, 'You get at most one email like this per app per hour.');
+    return this.send({ to, subject: `[HostX] ${title}`, ...body });
+  }
+
   static resetPassword(to: string, name: string, url: string): Promise<boolean> {
     const body = layout(
       'Reset your password',

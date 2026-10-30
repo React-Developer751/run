@@ -41,16 +41,28 @@ export const toPublicProject = (p: Project) => ({
   status: p.status,
   commit: p.commit,
   currentDeploymentId: p.currentDeploymentId,
+  liveDeploymentId: p.liveDeploymentId,
   createdAt: p.createdAt,
   updatedAt: p.updatedAt,
 });
 
-export const toPublicDeployment = (d: Deployment) => ({
+/** Successful deployments whose image is still kept on disk (see DockerRunner.retire). */
+function rollbackTargets(p: Project): Set<string> {
+  if (p.runtime !== 'docker') return new Set();
+  const kept = Store.deploymentsOf(p.id)
+    .filter((d) => d.status === 'live' && d.image)
+    .slice(0, config.limits.rollbackImages);
+  return new Set(kept.filter((d) => d.id !== p.liveDeploymentId).map((d) => d.id));
+}
+
+export const toPublicDeployment = (d: Deployment, targets?: Set<string>) => ({
   id: d.id,
   status: d.status,
   trigger: d.trigger,
   commit: d.commit,
   error: d.error,
+  rollbackOf: d.rollbackOf,
+  canRollback: targets?.has(d.id) ?? false,
   createdAt: d.createdAt,
   finishedAt: d.finishedAt,
 });
@@ -134,9 +146,10 @@ export class DeployController {
 
   static get(ctx: Ctx) {
     const project = ownedProject(ctx);
+    const targets = rollbackTargets(project);
     return {
       project: toPublicProject(project),
-      deployments: Store.deploymentsOf(project.id).map(toPublicDeployment),
+      deployments: Store.deploymentsOf(project.id).map((d) => toPublicDeployment(d, targets)),
     };
   }
 
@@ -166,6 +179,21 @@ export class DeployController {
     const deployment = await DeployService.deploy(project, 'redeploy');
     ctx.status = 202;
     return { deployment: toPublicDeployment(deployment) };
+  }
+
+  /** Puts the image of an earlier successful deployment back live (no rebuild). */
+  static async rollback(ctx: Ctx) {
+    AuthService.requireVerified(ctx.user);
+    const project = ownedProject(ctx);
+    const deployment = await DeployService.rollback(project, ctx.params.did ?? '');
+    ctx.status = 202;
+    return { deployment: toPublicDeployment(deployment) };
+  }
+
+  /** Crashes, automatic restarts, recoveries and rollbacks (newest first). */
+  static events(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    return { events: Store.eventsOf(project.id).map((e) => ({ id: e.id, at: e.at, kind: e.kind, message: e.message })) };
   }
 
   static async stop(ctx: Ctx) {

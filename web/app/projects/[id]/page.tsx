@@ -12,7 +12,9 @@ import { StatusBadge, isBusy } from '@/components/StatusBadge';
 import { api } from '@/lib/api';
 import { useRequireAuth } from '@/lib/auth';
 import { repoLabel, timeAgo, triggerLabel } from '@/lib/format';
-import type { BuildConfig, Deployment, Project } from '@/lib/types';
+import type { BuildConfig, Deployment, Project, ProjectEvent } from '@/lib/types';
+
+const EVENT_ICON: Record<ProjectEvent['kind'], string> = { crash: '🔴', restart: '🟠', recovered: '🟢', rollback: '↩️' };
 
 type Tab = 'deployments' | 'runtime' | 'env' | 'database' | 'settings';
 const TABS: Array<{ id: Tab; label: string }> = [
@@ -80,6 +82,7 @@ export default function ProjectPage() {
   const [cfg, setCfg] = useState<BuildConfig | null>(null);
   const [cfgInitial, setCfgInitial] = useState<BuildConfig | null>(null);
   const [runtimeLogs, setRuntimeLogs] = useState<string[]>([]);
+  const [events, setEvents] = useState<ProjectEvent[]>([]);
   const [databasesOn, setDatabasesOn] = useState(false);
   const [showUri, setShowUri] = useState(false);
 
@@ -137,8 +140,10 @@ export default function ProjectPage() {
   useEffect(() => {
     if (tab !== 'runtime' || !user) return;
     let cancelled = false;
-    const fetchLogs = () =>
-      api.runtimeLogs(id).then((r) => !cancelled && setRuntimeLogs(r.logs ? r.logs.split('\n') : [])).catch(() => undefined);
+    const fetchLogs = () => {
+      void api.events(id).then((r) => !cancelled && setEvents(r.events)).catch(() => undefined);
+      return api.runtimeLogs(id).then((r) => !cancelled && setRuntimeLogs(r.logs ? r.logs.split('\n') : [])).catch(() => undefined);
+    };
     void fetchLogs();
     const t = setInterval(fetchLogs, 4000);
     return () => {
@@ -159,6 +164,14 @@ export default function ProjectPage() {
     } finally {
       setBusy('');
     }
+  };
+
+  const rollback = (d: Deployment) => {
+    if (!window.confirm(`Put the version from ${timeAgo(d.createdAt)}${d.commit ? ` (commit ${d.commit})` : ''} back live? It uses your current environment variables. Nothing is rebuilt.`)) return;
+    void act('rollback', async () => {
+      const r = await api.rollback(id, d.id);
+      setSelected(r.deployment.id);
+    });
   };
 
   const redeploy = () =>
@@ -204,9 +217,9 @@ export default function ProjectPage() {
             <button className="btn" onClick={redeploy} disabled={deploying || busy !== ''}>
               {busy === 'deploy' ? <span className="spinner" /> : <Icon name="refresh" />} Redeploy
             </button>
-            {project.status === 'stopped' ? (
+            {project.status === 'stopped' || project.status === 'crashed' ? (
               <button className="btn" disabled={busy !== ''} onClick={() => act('start', () => api.start(id), 'App started')}>
-                {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} Start
+                {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} {project.status === 'crashed' ? 'Restart' : 'Start'}
               </button>
             ) : (
               <button className="btn" disabled={deploying || busy !== '' || project.status === 'failed'} onClick={() => act('stop', () => api.stop(id), 'App stopped')}>
@@ -217,6 +230,11 @@ export default function ProjectPage() {
         </div>
 
         {error && <div className="error-box" style={{ marginBottom: 20 }}>{error}</div>}
+        {project.status === 'crashed' && (
+          <div className="error-box" style={{ marginBottom: 20 }}>
+            This app crashed and is not serving traffic. Check <button className="link-btn" onClick={() => setTab('runtime')}>Runtime logs</button>, then restart, redeploy or roll back to an earlier version.
+          </div>
+        )}
 
         <div className="meta-grid">
           <div><small>Repository</small><span><a href={project.repoUrl.replace(/\.git$/, '')} target="_blank" rel="noreferrer">{repoLabel(project.repoUrl)}</a></span></div>
@@ -240,7 +258,10 @@ export default function ProjectPage() {
             <div className="deploy-list">
               {deployments.map((d) => (
                 <button key={d.id} className={`deploy-item ${selectedDeployment?.id === d.id ? 'on' : ''}`} onClick={() => setSelected(d.id)}>
-                  <StatusBadge status={d.status} />
+                  <span className="row" style={{ alignItems: 'center', gap: 8 }}>
+                    <StatusBadge status={d.status} />
+                    {d.id === project.liveDeploymentId && <span className="badge badge-live">Serving</span>}
+                  </span>
                   <small>
                     {triggerLabel(d.trigger)} · {timeAgo(d.createdAt)}
                     {d.commit ? ` · ${d.commit}` : ''}
@@ -253,11 +274,32 @@ export default function ProjectPage() {
                 {selectedDeployment.status === 'failed' && selectedDeployment.error && (
                   <div className="error-box">{selectedDeployment.error}</div>
                 )}
+                {selectedDeployment.canRollback && (
+                  <div className="notice-box" style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                    <span>This version can be put back live in seconds, without rebuilding.</span>
+                    <button className="btn btn-sm" disabled={deploying || busy !== ''} onClick={() => rollback(selectedDeployment)}>
+                      {busy === 'rollback' ? <span className="spinner" /> : '↩'} Roll back to this version
+                    </button>
+                  </div>
+                )}
                 <BuildLogs projectId={project.id} deployment={selectedDeployment} onFinished={load} key={selectedDeployment.id} />
               </div>
             ) : (
               <div className="muted">No deployments yet.</div>
             )}
+          </div>
+        )}
+
+        {tab === 'runtime' && events.length > 0 && (
+          <div className="card stack" style={{ marginBottom: 16, gap: 10 }}>
+            <h3 style={{ fontSize: 16 }}>Recent activity</h3>
+            {events.slice(0, 8).map((e) => (
+              <div key={e.id} className="row" style={{ gap: 10, alignItems: 'baseline' }}>
+                <span aria-hidden>{EVENT_ICON[e.kind]}</span>
+                <span style={{ flex: 1 }}>{e.message}</span>
+                <small className="dim" title={new Date(e.at).toLocaleString()}>{timeAgo(e.at)}</small>
+              </div>
+            ))}
           </div>
         )}
 

@@ -45,6 +45,9 @@ h2{margin:6px 0 10px}p{color:#58547f;max-width:420px;line-height:1.6;margin:0 au
   res.end(html);
 }
 
+/** A redeploy keeps the previous version running (blue-green), so it keeps serving until the switch. */
+const isServing = (p: Project) => p.status === 'live' || (p.status === 'deploying' && p.runtime !== null);
+
 function resolveProject(hostHeader: string | undefined): Project | null {
   if (!hostHeader) return null;
   const hostname = (hostHeader.split(':')[0] ?? '').toLowerCase();
@@ -104,13 +107,15 @@ export class ProxyService {
       }
       const project = resolveProject(req.headers.host);
       if (!project) return statusPage(res, 404, 'App not found', 'No deployment exists at this address.');
-      if (project.status !== 'live') {
+      if (!isServing(project)) {
         const msg =
           project.status === 'deploying'
             ? 'This app is being deployed right now. Refresh in a moment.'
             : project.status === 'stopped'
               ? 'This app has been stopped by its owner.'
-              : 'The last deployment of this app failed.';
+              : project.status === 'crashed'
+                ? 'This app crashed. Its owner has been notified.'
+                : 'The last deployment of this app failed.';
         return statusPage(res, 503, 'App unavailable', msg);
       }
       if (project.runtime === 'static') return serveStatic(project, req, res);
@@ -148,7 +153,7 @@ export class ProxyService {
     // WebSocket / HMR: replay the upgrade request to the app and pipe the raw sockets together.
     server.on('upgrade', (req, socket, head) => {
       const project = resolveProject(req.headers.host);
-      if (!project || project.status !== 'live' || project.runtime === 'static') return socket.destroy();
+      if (!project || !isServing(project) || project.runtime === 'static') return socket.destroy();
 
       const upstream = net.connect(project.port, '127.0.0.1', () => {
         const headers = req.rawHeaders.reduce((acc, cur, i) => acc + (i % 2 === 0 ? `${cur}: ` : `${cur}\r\n`), '');

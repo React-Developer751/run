@@ -23,6 +23,16 @@ export interface RuntimePatch {
   containerName: string | null;
   /** Set when the new version listens on a different port than the old one (zero-downtime switch). */
   port?: number;
+  /** Image built for this version (Docker), kept so the deployment can be rolled back to. */
+  image?: string;
+}
+
+export interface AppHealth {
+  running: boolean;
+  /** How often the runtime restarted the app by itself (Docker restart policy). */
+  restartCount: number;
+  exitCode: number | null;
+  oomKilled: boolean;
 }
 
 export interface Runner {
@@ -36,10 +46,13 @@ export interface Runner {
   retire?(previous: Project, current: RuntimePatch): Promise<void>;
   /** Starts an already built app again (after a stop or a HostX restart). */
   start(project: Project, srcDir: string, detection: Detection): Promise<RuntimePatch>;
+  /** Runs an image built by an earlier deployment again (rollback). Docker only. */
+  startImage?(project: Project, kind: Detection['kind'], image: string, log: (line: string) => void): Promise<RuntimePatch>;
   stop(project: Project): Promise<void>;
   /** Stops the app and deletes everything it left behind (images, static files, logs). */
   remove(project: Project): Promise<void>;
   isAlive(project: Project): Promise<boolean>;
+  health(project: Project): Promise<AppHealth>;
   runtimeLogs(project: Project, lines: number): Promise<string>;
 }
 

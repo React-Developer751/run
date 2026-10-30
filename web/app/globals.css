@@ -482,3 +482,6 @@ p { margin: 0; }
 .theme-btn:hover { color: var(--accent); border-color: var(--accent); }
 
 .section-head .tag { padding: 0; border: 0; border-radius: 0; background: none; }
+
+/* Inline text button (looks like a link) */
+.link-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); font-weight: 560; cursor: pointer; text-decoration: underline; }

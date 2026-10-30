@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { isReservedSlug, slugify } from '../utils/validator.js';
 import { ClonerService } from './cloner.service.js';
 import { DetectService, type Detection } from './detect.service.js';
+import { AlertService } from './alert.service.js';
 import { GitHubService } from './github.service.js';
 import { DeployLog, redactPaths } from './log.service.js';
 import { MongoService } from './mongo.service.js';
@@ -146,6 +147,8 @@ export class DeployService {
       containerName: null,
       database: null,
       githubInstallationId: input.githubInstallationId,
+      liveDeploymentId: null,
+      lastRemoteCommit: null,
       currentDeploymentId: null,
       commit: null,
       createdAt: now,
@@ -175,6 +178,9 @@ export class DeployService {
       trigger,
       commit: null,
       error: null,
+      image: null,
+      kind: null,
+      rollbackOf: null,
       createdAt: new Date().toISOString(),
       finishedAt: null,
     });
@@ -182,6 +188,91 @@ export class DeployService {
 
     void this.run(project.id, deployment.id);
     return deployment;
+  }
+
+  /**
+   * One-click rollback: starts the image an earlier successful deployment built (no clone, no build, seconds instead
+   * of minutes) next to the current version and switches traffic when it is healthy. Uses the current env vars.
+   */
+  static async rollback(project: Project, targetId: string): Promise<Deployment> {
+    const runner = RunnerService.for(project);
+    if (project.runtime !== 'docker' || !runner.startImage) throw new HttpError(409, 'Rollback is available for apps running in Docker');
+    const target = Store.getDeployment(targetId);
+    if (!target || target.projectId !== project.id || target.status !== 'live' || !target.image || !target.kind) {
+      throw new HttpError(404, 'That deployment cannot be rolled back to. Only recent successful deployments can.');
+    }
+    if (target.id === project.liveDeploymentId) throw new HttpError(409, 'That version is already live');
+    const busy = Store.deploymentsOf(project.id).some((d) => ['queued', 'cloning', 'building', 'starting'].includes(d.status));
+    if (busy) throw new HttpError(409, 'A deployment is already in progress for this project');
+
+    const deployment = await Store.addDeployment({
+      id: Store.newId('d'),
+      projectId: project.id,
+      status: 'starting',
+      trigger: 'rollback',
+      commit: target.commit,
+      error: null,
+      image: target.image,
+      kind: target.kind,
+      rollbackOf: target.id,
+      createdAt: new Date().toISOString(),
+      finishedAt: null,
+    });
+    await Store.updateProject(project.id, { status: 'deploying', currentDeploymentId: deployment.id });
+    void this.runRollback(project.id, deployment.id, target);
+    return deployment;
+  }
+
+  private static async runRollback(projectId: string, deploymentId: string, target: Deployment): Promise<void> {
+    const log = new DeployLog(deploymentId);
+    try {
+      const project = Store.getProject(projectId);
+      if (!project) return;
+      const kind = target.kind as Detection['kind'];
+      const runner = RunnerService.for(project);
+      log.system(`Rolling back to deployment ${target.id}${target.commit ? ` (commit ${target.commit})` : ''}: reusing its image, nothing is rebuilt.`);
+      log.system('The current environment variables are used.');
+      if (project.database && kind === 'node') await MongoService.attach(project);
+
+      const previous = { ...project };
+      const patch = await (runner.startImage as NonNullable<typeof runner.startImage>)(
+        { ...project, env: runtimeEnv(project, kind) },
+        kind,
+        target.image as string,
+        log.write,
+      );
+      const { image: _image, ...runtime } = patch;
+      await Store.updateProject(projectId, { ...runtime, kind, commit: target.commit, status: 'live', liveDeploymentId: deploymentId });
+      await Store.updateDeployment(deploymentId, { status: 'live', finishedAt: new Date().toISOString() });
+      await Store.addEvent(projectId, 'rollback', `Rolled back to ${target.commit ? `commit ${target.commit}` : `deployment ${target.id}`}.`);
+      await runner.retire?.(previous, patch).catch((err) => logger.warn(`Cleanup after rollback of ${project.slug} failed`, err));
+      log.system(`Live at ${projectUrl(project.slug)}`);
+    } catch (err) {
+      await this.fail(projectId, deploymentId, log, err as Error);
+    } finally {
+      await log.close();
+    }
+  }
+
+  /** Marks a deployment failed without taking down a version that is still serving traffic. */
+  private static async fail(projectId: string, deploymentId: string, log: DeployLog, err: Error): Promise<void> {
+    const message = redactPaths(err.message);
+    logger.warn(`Deployment ${deploymentId} failed: ${message}`);
+    log.system(`Deployment failed: ${message}`);
+    const deployment = await Store.updateDeployment(deploymentId, { status: 'failed', error: message, finishedAt: new Date().toISOString() }).catch(() => null);
+    const project = Store.getProject(projectId);
+    if (!project) return;
+    const stillServing = project.runtime !== null && (await RunnerService.for(project).isAlive(project).catch(() => false));
+    await Store.updateProject(projectId, { status: stillServing ? 'live' : 'failed' }).catch(() => undefined);
+    // Nobody is watching an automatic deploy: tell the owner.
+    if (deployment?.trigger === 'auto') {
+      AlertService.notify(
+        project,
+        'deploy-failed',
+        `Auto-deploy of ${project.name} failed`,
+        `the automatic deployment of "${project.name}" after a new commit failed: ${message.split('\n')[0]?.slice(0, 300)}. ${stillServing ? 'The previous version is still live.' : 'The app is offline.'}`,
+      );
+    }
   }
 
   static async stop(project: Project): Promise<void> {
@@ -262,6 +353,7 @@ export class DeployService {
       await ClonerService.clone(project.repoUrl, project.branch, sourceDir(project), log.write, await GitHubService.gitEnv(project.githubInstallationId));
 
       const commit = await ClonerService.headCommit(sourceDir(project));
+      if (commit) await Store.updateProject(projectId, { lastRemoteCommit: commit });
       const srcDir = await safeWorkDir(project);
       const detection = await resolveConfig(project, srcDir);
       if (!detection) {
@@ -296,31 +388,23 @@ export class DeployService {
         stage: setStage,
       });
 
+      const { image, ...runtime } = patch;
       await Store.updateProject(projectId, {
-        ...patch,
+        ...runtime,
         kind: detection.kind,
         framework: detection.framework,
         commit,
         status: 'live',
+        liveDeploymentId: deploymentId,
       });
-      await Store.updateDeployment(deploymentId, { status: 'live', finishedAt: new Date().toISOString() });
+      await Store.updateDeployment(deploymentId, { status: 'live', image: image ?? null, kind: detection.kind, finishedAt: new Date().toISOString() });
       // Traffic now goes to the new version: tear down the old one.
       await runner.retire?.(previous, patch).catch((err) => logger.warn(`Cleanup of the previous version of ${project.slug} failed`, err));
       // The image already contains everything; keep disk usage flat.
       if (patch.runtime === 'docker') await fs.rm(sourceDir(project), { recursive: true, force: true });
       log.system(`Live at ${projectUrl(project.slug)}`);
     } catch (err) {
-      const message = redactPaths((err as Error).message);
-      logger.warn(`Deployment ${deploymentId} failed: ${message}`);
-      log.system(`Deployment failed: ${message}`);
-      await Store.updateDeployment(deploymentId, { status: 'failed', error: message, finishedAt: new Date().toISOString() }).catch(() => undefined);
-
-      // A failed redeploy must not take down a version that is still serving traffic.
-      const project = Store.getProject(projectId);
-      if (project) {
-        const stillServing = project.runtime !== null && (await RunnerService.for(project).isAlive(project).catch(() => false));
-        await Store.updateProject(projectId, { status: stillServing ? 'live' : 'failed' }).catch(() => undefined);
-      }
+      await this.fail(projectId, deploymentId, log, err as Error);
     } finally {
       if (slot) this.releaseSlot();
       await log.close();

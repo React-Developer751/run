@@ -22,7 +22,8 @@ async function remoteHead(project: Project): Promise<string | null> {
 
 /** Commit that the project's most recent deployment attempt built (or tried to build). */
 function lastKnownCommit(project: Project): string | null {
-  return Store.deploymentsOf(project.id).find((d) => d.commit)?.commit ?? project.commit;
+  // lastRemoteCommit, not the live commit: after a rollback the older commit is live on purpose.
+  return project.lastRemoteCommit ?? Store.deploymentsOf(project.id).find((d) => d.commit && d.trigger !== 'rollback')?.commit ?? project.commit;
 }
 
 export class AutoDeployService {

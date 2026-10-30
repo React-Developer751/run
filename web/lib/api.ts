@@ -1,4 +1,4 @@
-import type { AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BuildConfig, Deployment, GitHubRepo, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
+import type { AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BuildConfig, Deployment, GitHubRepo, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 export class ApiError extends Error {
@@ -97,6 +97,9 @@ export const api = {
   stop: (id: string) => request<{ project: Project }>(`/api/projects/${id}/stop`, 'POST', {}),
   start: (id: string) => request<{ project: Project }>(`/api/projects/${id}/start`, 'POST', {}),
   remove: (id: string) => request<{ ok: true }>(`/api/projects/${id}`, 'DELETE'),
+  rollback: (id: string, deploymentId: string) =>
+    request<{ deployment: Deployment }>(`/api/projects/${id}/deployments/${deploymentId}/rollback`, 'POST', {}),
+  events: (id: string) => request<{ events: ProjectEvent[] }>(`/api/projects/${id}/events`),
   createDatabase: (id: string) => request<{ project: Project }>(`/api/projects/${id}/database`, 'POST', {}),
   deleteDatabase: (id: string) => request<{ project: Project }>(`/api/projects/${id}/database`, 'DELETE'),
 

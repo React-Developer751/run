@@ -9,7 +9,7 @@ import { repoLabel, timeAgo } from '@/lib/format';
 import { usePoll, useToast } from '@/lib/hooks';
 import type { AdminProject, ProjectStatus } from '@/lib/types';
 
-const FILTERS: Array<ProjectStatus | 'all'> = ['all', 'live', 'deploying', 'failed', 'stopped'];
+const FILTERS: Array<ProjectStatus | 'all'> = ['all', 'live', 'deploying', 'crashed', 'failed', 'stopped'];
 
 export default function AdminProjects() {
   const { data, error, reload } = usePoll(() => api.admin.projects(), 6000);

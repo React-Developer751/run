@@ -172,6 +172,20 @@ Engine env: `HOSTX_GITHUB_APP_ID`, `HOSTX_GITHUB_APP_SLUG` (URL wala naam), `HOS
 
 Security: callback par installation id par bharosa nahi kiya jata. OAuth code se GitHub se poocha jata hai ki is GitHub user ko kaunsi installations dikhti hain, aur signed `state` usi HostX user ka hona chahiye jo signed-in hai. Public repos bina connect kiye pehle jaisi chalti hain.
 
+## Crash monitor + alerts
+
+Har 30 second engine har chalti app check karta hai:
+- **Docker:** container crash hone par Docker use khud restart karta hai (`unless-stopped`); HostX ise pakad kar project ki **Recent activity** (Runtime logs tab) mein likhta hai: exit code, ya "out of memory". Container band hi rahe to status **Crashed**, proxy saaf "This app crashed" page dikhata hai, aur wapas chalne par apne aap **Live** + "recovered".
+- **Process mode (dev):** HostX khud restart karta hai (10 min mein max 3 baar), phir Crashed.
+- Owner ko email: crash par, aur **auto-deploy fail** hone par (har app ke liye ghante mein max 1 email per type). SMTP chahiye.
+- Crashed app par **Restart** button; redeploy ya rollback bhi kar sakte ho.
+
+## One-click rollback
+
+Har successful Docker deploy ki image rakhi jati hai (latest 3, `limits.rollbackImages`). Deployments tab mein purana version chuno → **Roll back to this version**: wahi image naye container mein start hoti hai (koi clone/build nahi, kuch second), health check ke baad traffic switch, purana version hata diya jata hai. Current env vars use hote hain. "Serving" tag batata hai abhi kaunsa deployment live hai.
+
+Rollback ke baad auto-deploy use turant undo nahi karta: polling "aakhri dekhe gaye commit" se compare karta hai, isliye agla deploy **naye push** par hi hoga. Process mode mein rollback nahi hai (wahan images nahi bantin).
+
 ## Auto-deploy (git push → automatic update)
 
 Har project mein **Auto-deploy** default ON hai. Do tarike, dono saath chalte hain:
@@ -209,7 +223,7 @@ Dashboard: `web/.env.local` mein `NEXT_PUBLIC_API_URL=http://localhost:4000` aur
 `POST /api/auth/register` · `POST /api/auth/login` · `GET /api/auth/me` · `POST /api/auth/verify-email|resend-verification|forgot-password|reset-password`
 `GET|DELETE /api/github` · `GET /api/github/repos` · `GET /api/auth/github/callback` · `POST /api/github/webhook`
 `POST /api/scan` · `GET|POST /api/projects` · `GET|PATCH|DELETE /api/projects/:id`
-`POST /api/projects/:id/deploy|stop|start` · `POST|DELETE /api/projects/:id/database` · `GET /api/projects/:id/deployments/:did/logs?after=N` · `GET /api/projects/:id/logs`
+`POST /api/projects/:id/deploy|stop|start` · `POST /api/projects/:id/deployments/:did/rollback` · `GET /api/projects/:id/events` · `POST|DELETE /api/projects/:id/database` · `GET /api/projects/:id/deployments/:did/logs?after=N` · `GET /api/projects/:id/logs`
 
 Sab (health aur webhook ke alawa) login cookie maangte hain (`credentials: 'include'`).
 

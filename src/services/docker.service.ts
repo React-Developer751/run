@@ -5,7 +5,7 @@ import { exec, run } from '../utils/exec.js';
 import { logger } from '../utils/logger.js';
 import { PortService } from './port.service.js';
 import { installCommand, type Detection } from './detect.service.js';
-import type { DeployContext, Runner, RuntimePatch } from './runner.service.js';
+import type { AppHealth, DeployContext, Runner, RuntimePatch } from './runner.service.js';
 import { Store, type Project } from './store.service.js';
 
 const DOCKERFILE = '.hostx.Dockerfile';
@@ -110,33 +110,47 @@ export class DockerRunner implements Runner {
 
     await stage('starting');
     log('[hostx] Starting new version (the current one keeps serving until it is healthy)...');
-    // One private network per project: containers of different users cannot reach each other.
-    await exec('docker', ['network', 'create', '--driver', 'bridge', networkName(project)]);
-    const used = Store.usedPorts();
-    const port = await PortService.reserve(used);
     try {
-      return await this.startContainer(project, detection, versionedName(project, version), image, port, log);
+      return await this.startVersion(project, detection.kind, image, version, log);
     } catch (err) {
       await exec('docker', ['rmi', '-f', image]);
       throw err;
+    }
+  }
+
+  /** Starts `image` next to the running version on a fresh port; the caller switches traffic once it resolves. */
+  private async startVersion(project: Project, kind: Detection['kind'], image: string, version: string, log: (l: string) => void): Promise<RuntimePatch> {
+    // One private network per project: containers of different users cannot reach each other.
+    await exec('docker', ['network', 'create', '--driver', 'bridge', networkName(project)]);
+    const port = await PortService.reserve(Store.usedPorts());
+    try {
+      const patch = await this.startContainer(project, kind, versionedName(project, version), image, port, log);
+      return { ...patch, image };
     } finally {
       PortService.release(port);
     }
   }
 
+  /** Rollback: runs the image of an earlier deployment again (no rebuild), with the project's current env. */
+  async startImage(project: Project, kind: Detection['kind'], image: string, log: (l: string) => void): Promise<RuntimePatch> {
+    const { code } = await exec('docker', ['image', 'inspect', image]);
+    if (code !== 0) throw new Error('The image of that deployment no longer exists. Redeploy instead.');
+    return this.startVersion(project, kind, image, Date.now().toString(36), log);
+  }
+
   private async startContainer(
     project: Project,
-    detection: Detection,
+    kind: Detection['kind'],
     name: string,
     image: string,
     port: number,
     log: (l: string) => void,
   ): Promise<RuntimePatch> {
-    const innerPort = detection.kind === 'static' ? 80 : 3000;
+    const innerPort = kind === 'static' ? 80 : 3000;
     const envFile = path.join(config.envDir, `${name}.env`);
     await fs.mkdir(config.envDir, { recursive: true });
     const lines = Object.entries(project.env).map(([k, v]) => `${k}=${v}`);
-    if (detection.kind === 'node') lines.push('NODE_ENV=production', 'PORT=3000');
+    if (kind === 'node') lines.push('NODE_ENV=production', 'PORT=3000');
     await fs.writeFile(envFile, lines.join('\n'), { mode: 0o600 });
 
     await exec('docker', ['rm', '-f', name]);
@@ -185,10 +199,19 @@ export class DockerRunner implements Runner {
     if (old === current.containerName) return;
     // Give requests that were already in flight on the old version a moment to finish.
     await new Promise((r) => setTimeout(r, 2000));
-    const { stdout } = await exec('docker', ['inspect', '-f', '{{.Config.Image}}', old]).catch(() => ({ stdout: '' }));
     await exec('docker', ['rm', '-f', old]);
-    const oldImage = stdout.trim();
-    if (oldImage.startsWith(`hostx-${previous.id}:`)) await exec('docker', ['rmi', oldImage]);
+    // Keep the images of the last few successful deployments (rollback targets) and the one now serving.
+    const keep = new Set(
+      Store.deploymentsOf(previous.id)
+        .filter((d) => d.status === 'live' && d.image)
+        .slice(0, config.limits.rollbackImages)
+        .map((d) => d.image as string),
+    );
+    if (current.image) keep.add(current.image);
+    const { stdout } = await exec('docker', ['images', '--format', '{{.Repository}}:{{.Tag}}', `hostx-${previous.id}`]);
+    for (const image of stdout.split('\n').map((s) => s.trim()).filter(Boolean)) {
+      if (!keep.has(image)) await exec('docker', ['rmi', image]);
+    }
     // Intermediate build stages and replaced layers would otherwise fill the disk over time.
     void exec('docker', ['image', 'prune', '-f', '--filter', 'dangling=true']).catch(() => undefined);
     void exec('docker', ['builder', 'prune', '-f', '--filter', 'until=168h']).catch(() => undefined);
@@ -219,6 +242,15 @@ export class DockerRunner implements Runner {
 
   async isAlive(project: Project): Promise<boolean> {
     return this.containerRunning(containerName(project));
+  }
+
+  async health(project: Project): Promise<AppHealth> {
+    const { code, stdout } = await exec('docker', [
+      'inspect', '-f', '{{.State.Running}}|{{.RestartCount}}|{{.State.ExitCode}}|{{.State.OOMKilled}}', containerName(project),
+    ]).catch(() => ({ code: 1, stdout: '' }));
+    if (code !== 0) return { running: false, restartCount: 0, exitCode: null, oomKilled: false };
+    const [running, restarts, exit, oom] = stdout.trim().split('|');
+    return { running: running === 'true', restartCount: Number(restarts) || 0, exitCode: Number.isFinite(Number(exit)) ? Number(exit) : null, oomKilled: oom === 'true' };
   }
 
   private async containerRunning(name: string): Promise<boolean> {
