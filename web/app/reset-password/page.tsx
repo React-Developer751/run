@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState, type FormEvent } from 'react';
 import { Nav } from '@/components/Nav';
 import { api } from '@/lib/api';
+import { PasswordInput } from '@/components/PasswordInput';
 
 export default function ResetPasswordPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -50,12 +51,12 @@ export default function ResetPasswordPage() {
             <form onSubmit={submit}>
               <div className="field">
                 <label className="label" htmlFor="new">New password</label>
-                <input id="new" type="password" className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={8} required autoFocus />
+                <PasswordInput id="new" className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={8} required autoFocus />
                 <span className="hint">At least 8 characters.</span>
               </div>
               <div className="field">
                 <label className="label" htmlFor="conf">Confirm new password</label>
-                <input id="conf" type="password" className="input" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" minLength={8} required />
+                <PasswordInput id="conf" className="input" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" minLength={8} required />
               </div>
               {error && <div className="error-box" role="alert">{error} {/expired|invalid/i.test(error) && <Link href="/forgot-password">Request a new link</Link>}</div>}
               <button className="btn btn-primary btn-lg" disabled={busy || token === null}>{busy ? <span className="spinner" /> : 'Change password'}</button>

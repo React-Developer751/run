@@ -7,6 +7,7 @@ import { API_BASE, api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { Icon } from './Icon';
 import { Nav } from './Nav';
+import { PasswordInput } from './PasswordInput';
 
 const GITHUB_ERRORS: Record<string, string> = {
   expired: 'The GitHub sign-in took too long or was opened in another browser. Please try again.',
@@ -93,9 +94,8 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
             </div>
             <div className="field">
               <label className="label" htmlFor="password">Password</label>
-              <input
+              <PasswordInput
                 id="password"
-                type="password"
                 className="input"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

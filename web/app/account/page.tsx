@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { useRequireAuth } from '@/lib/auth';
 import type { GitHubStatus } from '@/lib/types';
 import { GITHUB_RESULT } from '@/lib/github-result';
+import { PasswordInput } from '@/components/PasswordInput';
 
 function GitHubCard() {
   const { reload } = useAuth();
@@ -108,7 +109,7 @@ function DeleteAccountCard() {
         <form className="stack" onSubmit={submit}>
           <div className="field">
             <label className="label" htmlFor="del-pw">Your password</label>
-            <input id="del-pw" type="password" className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+            <PasswordInput id="del-pw" className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
             <span className="hint">Signed up with GitHub and never set a password? Use <a href="/forgot-password">Forgot password</a> to set one first.</span>
           </div>
           <div className="field">
@@ -189,16 +190,16 @@ export default function AccountPage() {
             </div>
             <div className="field">
               <label className="label" htmlFor="cur">Current password</label>
-              <input id="cur" type="password" className="input" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required />
+              <PasswordInput id="cur" className="input" value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" required />
             </div>
             <div className="field">
               <label className="label" htmlFor="new">New password</label>
-              <input id="new" type="password" className="input" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} required />
+              <PasswordInput id="new" className="input" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={8} required />
               <span className="hint">At least 8 characters.</span>
             </div>
             <div className="field">
               <label className="label" htmlFor="conf">Confirm new password</label>
-              <input id="conf" type="password" className="input" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" minLength={8} required />
+              <PasswordInput id="conf" className="input" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" minLength={8} required />
             </div>
             {error && <div className="error-box" role="alert">{error}</div>}
             {done && <div className="notice-box" role="status">Password updated.</div>}

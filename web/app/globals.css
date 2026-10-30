@@ -656,3 +656,14 @@ textarea.input { height: auto; padding-top: 10px; padding-bottom: 10px; resize: 
   .specs { grid-template-columns: repeat(2, 1fr); }
 }
 .support-item .row { flex-direction: row; align-items: center; } .support-item .badge { align-self: flex-start; }
+
+/* ── Password field with show/hide ── */
+.password-field { position: relative; }
+.password-field .input { padding-right: 46px; }
+.password-toggle { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--dim); cursor: pointer; }
+.password-toggle:hover { color: var(--text); background: var(--s1); }
+.password-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.password-toggle:disabled { cursor: default; opacity: 0.5; }
+.password-toggle .icon { width: 18px; height: 18px; }
+/* Hide the browser's own reveal button (Edge) so there is only one eye. */
+.password-field input::-ms-reveal, .password-field input::-ms-clear { display: none; }
