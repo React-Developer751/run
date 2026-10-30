@@ -104,7 +104,13 @@ Public pages (`/`, `/register`) indexable hain: unique title, description, canon
 
 ## Admin panel (`/admin`)
 
-Pehla account jo register hota hai **admin** banta hai (ya `HOSTX_ADMIN_EMAIL` wala email). Purane accounts mein sabse purana user admin ban jata hai. Admin ko navbar mein **Admin** link dikhta hai:
+**Admin kaun banta hai (apne aap sirf ek baar):**
+- Database mein jab **ek bhi user aur ek bhi admin na ho**, tab pehla account admin banta hai (email ya GitHub sign-up). Ek saath kai log register karein to bhi sirf ek admin banta hai.
+- `HOSTX_ADMIN_EMAIL` wala account bhi admin tabhi banta hai jab platform par **koi admin na ho** (aur email verify ho).
+- Ek admin ban gaya to aage koi bhi apne aap admin nahi banta. Naya admin sirf koi admin **Admin → Users** se bana sakta hai.
+- **Galat aadmi admin ban gaya / admin ka access kho gaya?** Server par engine band karke: `npm run make-admin -- you@example.com --only` (aapka account admin, baaki sab admins normal users, sabke sessions logout). Ye sirf server ka shell access rakhne wala chala sakta hai. Phir engine start karo.
+
+Admin ko navbar mein **Admin** link dikhta hai:
 
 | Page | Kya kar sakte ho |
 |---|---|

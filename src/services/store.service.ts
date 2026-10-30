@@ -547,6 +547,11 @@ export class Store {
     return this.db.audit.slice(0, limit);
   }
 
+  /** True when any account has the admin role (suspended or not). Automatic admin grants only happen without one. */
+  static hasAdmin(): boolean {
+    return this.db.users.some((u) => u.role === 'admin');
+  }
+
   static async addUser(user: User): Promise<User> {
     if (this.getUserByEmail(user.email)) throw new Error('EMAIL_TAKEN');
     try {

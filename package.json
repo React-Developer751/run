@@ -8,7 +8,8 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "start": "node --disable-warning=ExperimentalWarning dist/index.js",
-    "dev": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx watch src/index.ts"
+    "dev": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx watch src/index.ts",
+    "make-admin": "NODE_OPTIONS=--disable-warning=ExperimentalWarning tsx src/scripts/make-admin.ts"
   },
   "engines": {
     "node": ">=22.13"

@@ -45,8 +45,12 @@ async function sendVerification(user: User): Promise<void> {
 }
 
 /** HOSTX_ADMIN_EMAIL gets the admin role, but only after an emailed link proved the address belongs to them. */
+/**
+ * HOSTX_ADMIN_EMAIL becomes admin once its address is proven, but only while the platform has no admin at all:
+ * once an admin exists, new admins are made only by an admin (Admin → Users) or on the server (npm run make-admin).
+ */
 async function promoteConfiguredAdmin(user: User): Promise<void> {
-  if (config.adminEmail && user.email === config.adminEmail && user.role !== 'admin') {
+  if (config.adminEmail && user.email === config.adminEmail && user.role !== 'admin' && !Store.hasAdmin()) {
     await Store.updateUser(user.id, { role: 'admin' });
   }
 }
@@ -84,19 +88,22 @@ export class AuthController {
     if (Store.getUserByEmail(email)) throw new HttpError(409, 'An account with this email already exists');
 
     const passwordHash = await AuthService.hashPassword(password);
+    // Decided right before the (synchronous) insert, after every await: two sign-ups racing on a fresh server cannot
+    // both see an empty platform. Only the very first account, and only while no admin exists, becomes admin.
+    const owner = Store.allUsers().length === 0 && !Store.hasAdmin();
     const user = await Store.addUser({
       id: Store.newId('u'),
       name,
       email,
       passwordHash,
       // HOSTX_ADMIN_EMAIL becomes admin only once that address is confirmed (verifyEmail), never just by signing up with it.
-      role: firstAccount ? 'admin' : 'user',
+      role: owner ? 'admin' : 'user',
       suspended: false,
       maxProjects: null,
       lastLoginAt: new Date().toISOString(),
       passwordChangedAt: null,
       // The very first account (the platform owner) must never be locked out by a mail misconfiguration.
-      emailVerifiedAt: firstAccount ? new Date().toISOString() : null,
+      emailVerifiedAt: owner ? new Date().toISOString() : null,
       github: null,
       plan: 'free',
       termsAcceptedAt: new Date().toISOString(),

@@ -243,13 +243,16 @@ export class GitHubService {
     if (!firstAccount && !(Store.settings().allowSignup ?? config.allowSignup)) throw new HttpError(403, 'signup-closed');
     const now = new Date().toISOString();
     const name = (me.name?.trim() || me.login).slice(0, 60).padEnd(2, '_');
+    // No password: GitHub sign-in only, until the user sets one with "Forgot password".
+    const passwordHash = await AuthService.hashPassword(crypto.randomBytes(32).toString('base64url'));
+    // Decided after the last await, right before the insert (see AuthController.register). Never while an admin exists.
+    const owner = !Store.hasAdmin() && (Store.allUsers().length === 0 || (config.adminEmail !== '' && email === config.adminEmail));
     const user = await Store.addUser({
       id: Store.newId('u'),
       name,
       email,
-      // No password: GitHub sign-in only, until the user sets one with "Forgot password".
-      passwordHash: await AuthService.hashPassword(crypto.randomBytes(32).toString('base64url')),
-      role: firstAccount || (config.adminEmail !== '' && email === config.adminEmail) ? 'admin' : 'user',
+      passwordHash,
+      role: owner ? 'admin' : 'user',
       suspended: false,
       maxProjects: null,
       lastLoginAt: now,
