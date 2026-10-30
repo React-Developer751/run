@@ -1,6 +1,6 @@
 import type { AdminFeedback, AdminTicket, AdminTicketSummary, Feedback, Rating, Testimonial, Ticket, TicketCategory, TicketSummary, SettingsPatch, AdminNotification, StorageReport, AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 /** Engine URL, for full-page navigations such as "Continue with GitHub". */
 export const API_BASE = BASE;
 export class ApiError extends Error {

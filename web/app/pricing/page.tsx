@@ -5,7 +5,7 @@ import { SiteFooter } from '@/components/SiteFooter';
 import { SITE_NAME, SITE_URL } from '@/lib/site';
 import type { Plan } from '@/lib/types';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 // Rendered on the server (refreshed every 5 minutes) so the plans and prices are in the HTML search engines read.
 export const revalidate = 300;

@@ -21,6 +21,9 @@ import { Store } from './services/store.service.js';
 import { Vault } from './services/vault.service.js';
 
 async function main(): Promise<void> {
+  // The server env template marks every value to fill in with FILL_ME: never start production half-configured.
+  const unfilled = Object.entries(process.env).filter(([k, v]) => k.startsWith('HOSTX_') && v?.includes('FILL_ME')).map(([k]) => k);
+  if (config.isProduction && unfilled.length) throw new Error(`Fill in (or comment out) these settings in .env first: ${unfilled.join(', ')}`);
   const domainProblem = sharedDomainProblem();
   if (domainProblem) {
     if (config.isProduction && !config.allowSharedDomain) throw new Error(domainProblem);
