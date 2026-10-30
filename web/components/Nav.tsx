@@ -10,11 +10,7 @@ import { Icon } from './Icon';
 import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
 
-function RunnerChip() {
-  const [health, setHealth] = useState<Health | null>(null);
-  useEffect(() => {
-    api.health().then(setHealth).catch(() => setHealth(null));
-  }, []);
+function RunnerChip({ health }: { health: Health | null }) {
   if (!health) return null;
   const isolated = health.runner === 'docker';
   return (
@@ -62,6 +58,10 @@ export function Nav({ variant }: { variant: 'site' | 'app' }) {
   const { user, loading, signOut } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const [health, setHealth] = useState<Health | null>(null);
+  useEffect(() => {
+    api.health().then(setHealth).catch(() => setHealth(null));
+  }, []);
 
   const logout = async () => {
     await signOut();
@@ -78,18 +78,20 @@ export function Nav({ variant }: { variant: 'site' | 'app' }) {
           <div className="nav-links">
             <a className="nav-link" href="/#how">How it works</a>
             <a className="nav-link" href="/#features">Features</a>
+            {health?.billing && <Link className="nav-link" href="/pricing">Pricing</Link>}
           </div>
         ) : (
           <div className="nav-links">
             <Link className={`nav-link ${pathname === '/dashboard' ? 'active' : ''}`} href="/dashboard">Projects</Link>
             <Link className={`nav-link ${pathname === '/new' ? 'active' : ''}`} href="/new">New deploy</Link>
+            {health?.billing && <Link className={`nav-link ${pathname === '/billing' ? 'active' : ''}`} href="/billing">Billing</Link>}
             {user?.role === 'admin' && <Link className={`nav-link ${pathname.startsWith('/admin') ? 'active' : ''}`} href="/admin">Admin</Link>}
           </div>
         )}
 
         <div className="nav-right">
           <ThemeToggle />
-          {variant === 'app' && <RunnerChip />}
+          {variant === 'app' && <RunnerChip health={health} />}
           {loading ? null : user ? (
             <>
               {variant === 'site' && (

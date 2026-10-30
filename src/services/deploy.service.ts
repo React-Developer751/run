@@ -13,7 +13,8 @@ import { DeployLog, redactPaths } from './log.service.js';
 import { MongoService } from './mongo.service.js';
 import { PortService } from './port.service.js';
 import { RunnerService } from './runner.service.js';
-import { Store, type Deployment, type DeploymentStatus, type Project } from './store.service.js';
+import { billingEnabled } from '../config/plans.js';
+import { Store, limitsFor, type Deployment, type DeploymentStatus, type Project } from './store.service.js';
 
 export interface CreateProjectInput {
   userId: string;
@@ -110,9 +111,10 @@ export class DeployService {
     const port = await PortService.allocate(Store.usedPorts());
 
     // Everything from here to addProject() is synchronous, so concurrent requests cannot race on limit/slug.
-    const limit = Store.getUserById(input.userId)?.maxProjects ?? Store.settings().maxProjectsPerUser ?? config.limits.maxProjectsPerUser;
+    const limit = limitsFor(Store.getUserById(input.userId)).projects;
     if (Store.projectsOf(input.userId).length >= limit) {
-      throw new HttpError(403, `Project limit reached (${limit}). Delete a project to create a new one.`);
+      const upgrade = billingEnabled() ? ' or upgrade your plan on the Billing page' : '';
+      throw new HttpError(403, `Project limit reached (${limit}). Delete a project${upgrade} to create a new one.`);
     }
 
     if (input.database && !MongoService.available()) throw new HttpError(503, 'Databases are not available on this server');

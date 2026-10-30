@@ -87,6 +87,8 @@ export class AuthController {
       // The very first account (the platform owner) must never be locked out by a mail misconfiguration.
       emailVerifiedAt: firstAccount ? new Date().toISOString() : null,
       github: null,
+      plan: 'free',
+      subscription: null,
       createdAt: new Date().toISOString(),
     }).catch((err: Error) => {
       if (err.message === 'EMAIL_TAKEN') throw new HttpError(409, 'An account with this email already exists');

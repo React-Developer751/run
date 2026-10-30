@@ -1,4 +1,4 @@
-export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed';
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'sleeping';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
 
 export interface User {
@@ -87,6 +87,37 @@ export interface Health {
   databases?: boolean;
   github?: boolean;
   captcha?: boolean;
+  billing?: boolean;
+}
+
+export type PlanId = 'free' | 'starter' | 'pro';
+
+export interface PlanLimits {
+  projects: number;
+  databases: number;
+  memory: string;
+  cpus: string;
+  sleepAfterMinutes: number | null;
+}
+
+export interface Plan extends PlanLimits {
+  id: PlanId;
+  name: string;
+  priceInr: number;
+  available: boolean;
+}
+
+export interface BillingInfo {
+  enabled: boolean;
+  plan: PlanId;
+  limits: PlanLimits;
+  usage: { projects: number; databases: number };
+  subscription: {
+    plan: PlanId;
+    status: 'created' | 'active' | 'pending' | 'cancelling' | 'cancelled' | 'halted';
+    currentPeriodEnd: string | null;
+    paymentUrl: string | null;
+  } | null;
 }
 
 export interface GitHubStatus {
@@ -114,6 +145,8 @@ export interface AdminUser {
   role: 'admin' | 'user';
   suspended: boolean;
   maxProjects: number | null;
+  plan: PlanId;
+  subscriptionStatus: string | null;
   createdAt: string;
   lastLoginAt: string | null;
   projects: number;

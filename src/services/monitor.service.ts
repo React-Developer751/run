@@ -1,9 +1,8 @@
-import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 import { AlertService } from './alert.service.js';
 import { DeployService } from './deploy.service.js';
 import { RunnerService } from './runner.service.js';
-import { Store, type Project } from './store.service.js';
+import { Store, limitsFor, type Project } from './store.service.js';
 
 const INTERVAL_MS = 30_000;
 // Process mode has no restart policy: HostX restarts the app itself, but gives up when it keeps dying.
@@ -33,6 +32,7 @@ export class MonitorService {
     this.running = true;
     try {
       for (const project of [...Store.allProjects()]) {
+        // Sleeping (free plan) and stopped apps are down on purpose.
         if ((project.status !== 'live' && project.status !== 'crashed') || project.runtime === null || project.runtime === 'static') continue;
         await this.check(project).catch((err) => logger.warn(`Health check of ${project.slug} failed`, err));
       }
@@ -93,7 +93,7 @@ export class MonitorService {
   }
 
   private static alert(project: Project, title: string, message: string, oom: boolean): void {
-    const hint = oom ? ` Each app may use up to ${config.limits.memory} of memory.` : '';
+    const hint = oom ? ` Each app may use up to ${limitsFor(Store.getUserById(project.userId)).memory} of memory on your plan.` : '';
     AlertService.notify(project, 'crash', title, message + hint);
   }
 }

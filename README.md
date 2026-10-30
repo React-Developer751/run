@@ -186,6 +186,26 @@ Har successful Docker deploy ki image rakhi jati hai (latest 3, `limits.rollback
 
 Rollback ke baad auto-deploy use turant undo nahi karta: polling "aakhri dekhe gaye commit" se compare karta hai, isliye agla deploy **naye push** par hi hoga. Process mode mein rollback nahi hai (wahan images nahi bantin).
 
+## Plans & billing (Razorpay)
+
+| Plan | Price | Projects | RAM / CPU per app | MongoDB | Sleep |
+|---|---|---|---|---|---|
+| Free | ₹0 | 2 | 256 MB / 0.25 | 1 | 15 min idle ke baad |
+| Starter | ₹299/mo | 5 | 512 MB / 0.5 | 3 | Kabhi nahi |
+| Pro | ₹999/mo | 15 | 1 GB / 1 | 10 | Kabhi nahi |
+
+Sab env se badal sakte ho (`HOSTX_PRICE_STARTER`, `HOSTX_FREE_PROJECTS`, `HOSTX_PRO_MEMORY`, `HOSTX_FREE_SLEEP_MINUTES` ...; dekho `src/config/plans.ts`). **Billing tabhi on hoti hai jab Razorpay keys set hon.** Bina keys ke purana behaviour (HOSTX_MAX_PROJECTS, HOSTX_APP_MEMORY, koi sleep nahi) waisa hi rehta hai. Admins par plan limits nahi lagti.
+
+- User **Billing** page → Upgrade → Razorpay ka hosted payment page (UPI autopay, card, netbanking). Plan sirf **signed webhook** aane par badalta hai (browser par bharosa nahi). Duplicate webhooks ignore hote hain.
+- Paid plans ke beech switch: same subscription update hota hai (Razorpay prorate karta hai). Cancel: paid period khatam hone tak plan rehta hai, phir Free.
+- Renewal fail: Razorpay retry karta hai, tab tak plan rehta hai. Halted/cancelled → Free.
+- Plan badalte hi chal rahe containers ki RAM/CPU **bina restart** ke badal jaati hai (`docker update`). Downgrade par purane extra projects delete nahi hote, bas naye nahi ban sakte.
+- **Free tier sleep:** web service 15 min bina request ke rahe to stop ho jati hai (status *Sleeping*). Agli request aate hi proxy use start karke wahi request serve karta hai (Docker mein kuch second). Static sites kabhi sleep nahi hoti.
+- Admin → Users mein har user ka plan haath se set kar sakte ho (free upgrade, koi charge nahi).
+- Public `/pricing` page (sitemap mein).
+
+**Setup:** Razorpay Dashboard → Subscriptions → **Plans**: "Starter" ₹299 monthly aur "Pro" ₹999 monthly banao, unke `plan_...` ids lo. Settings → API Keys, aur Settings → **Webhooks**: URL `https://api.yourdomain.com/api/billing/webhook`, secret set karo, events: `subscription.activated, charged, updated, pending, halted, cancelled, completed, paused, resumed`. Pehle **Test mode** keys se poora flow try karo.
+
 ## Auto-deploy (git push → automatic update)
 
 Har project mein **Auto-deploy** default ON hai. Do tarike, dono saath chalte hain:
@@ -221,7 +241,7 @@ Dashboard: `web/.env.local` mein `NEXT_PUBLIC_API_URL=http://localhost:4000` aur
 ## API
 
 `POST /api/auth/register` · `POST /api/auth/login` · `GET /api/auth/me` · `POST /api/auth/verify-email|resend-verification|forgot-password|reset-password`
-`GET|DELETE /api/github` · `GET /api/github/repos` · `GET /api/auth/github/callback` · `POST /api/github/webhook`
+`GET /api/billing/plans` · `GET /api/billing` · `POST /api/billing/subscribe|cancel|webhook` · `GET|DELETE /api/github` · `GET /api/github/repos` · `GET /api/auth/github/callback` · `POST /api/github/webhook`
 `POST /api/scan` · `GET|POST /api/projects` · `GET|PATCH|DELETE /api/projects/:id`
 `POST /api/projects/:id/deploy|stop|start` · `POST /api/projects/:id/deployments/:did/rollback` · `GET /api/projects/:id/events` · `POST|DELETE /api/projects/:id/database` · `GET /api/projects/:id/deployments/:did/logs?after=N` · `GET /api/projects/:id/logs`
 

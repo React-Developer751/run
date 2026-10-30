@@ -5,6 +5,8 @@ import type { Ctx } from '../utils/http.js';
 import { HttpError } from '../utils/http.js';
 import { exec } from '../utils/exec.js';
 import { AuthService } from '../services/auth.service.js';
+import { isPlanId } from '../config/plans.js';
+import { BillingService } from '../services/billing.service.js';
 import { DeployService } from '../services/deploy.service.js';
 import { DeployLog } from '../services/log.service.js';
 import { RunnerService } from '../services/runner.service.js';
@@ -24,6 +26,8 @@ const userRow = (u: User) => {
     role: u.role,
     suspended: u.suspended,
     maxProjects: u.maxProjects,
+    plan: u.plan,
+    subscriptionStatus: u.subscription?.status ?? null,
     createdAt: u.createdAt,
     lastLoginAt: u.lastLoginAt,
     projects: mine.length,
@@ -177,12 +181,26 @@ export class AdminController {
       notes.push(`maxProjects=${String(v)}`);
     }
 
+    let newPlan: string | null = null;
+    if (body.plan !== undefined) {
+      if (!isPlanId(body.plan)) throw new HttpError(400, 'plan must be free, starter or pro');
+      if (body.plan !== target.plan) {
+        newPlan = body.plan;
+        notes.push(`plan=${body.plan}`);
+      }
+    }
+
     const losesAdmin = (patch.role === 'user' && target.role === 'admin') || (patch.suspended === true && target.role === 'admin');
     if (losesAdmin && !Store.allUsers().some((u) => u.id !== target.id && u.role === 'admin' && !u.suspended)) {
       throw new HttpError(400, 'At least one active administrator must remain');
     }
 
-    const updated = await Store.updateUser(target.id, patch);
+    let updated = await Store.updateUser(target.id, patch);
+    // Granted by hand (e.g. a free upgrade): applied to running apps right away, independent of any payment.
+    if (newPlan && isPlanId(newPlan)) {
+      await BillingService.setPlan(updated, newPlan, `set by admin ${actor.email}`);
+      updated = Store.getUserById(target.id) ?? updated;
+    }
     if (patch.suspended === true || patch.role !== undefined) await Store.revokeUserSessions(target.id);
     if (patch.suspended === true) {
       // A suspended account's apps go offline immediately.

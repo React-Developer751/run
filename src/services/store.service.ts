@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { config } from '../config/index.js';
+import { PLANS, billingEnabled, type PlanId, type PlanLimits } from '../config/plans.js';
 import { logger } from '../utils/logger.js';
 import { DeployLog } from './log.service.js';
 import { Vault } from './vault.service.js';
 
-export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed';
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'sleeping';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
 export type ProjectKind = 'static' | 'node';
 export type RuntimeKind = 'docker' | 'process' | 'static';
@@ -28,7 +29,20 @@ export interface User {
   emailVerifiedAt: string | null;
   /** Linked GitHub account and the GitHub App installations it can use. */
   github: { login: string; installationIds: number[]; linkedAt: string } | null;
+  plan: PlanId;
+  /** Razorpay subscription behind a paid plan (null for free / plans granted by an admin). */
+  subscription: Subscription | null;
   createdAt: string;
+}
+
+export interface Subscription {
+  id: string;
+  plan: PlanId;
+  /** created = waiting for the first payment; pending = a renewal payment failed and Razorpay is retrying. */
+  status: 'created' | 'active' | 'pending' | 'cancelling' | 'cancelled' | 'halted';
+  currentPeriodEnd: string | null;
+  shortUrl: string | null;
+  updatedAt: string;
 }
 
 /** Single-use secret sent by email (verify address, reset password). Only its hash is stored. */
@@ -143,6 +157,8 @@ interface Database {
   sessions: Session[];
   tokens: OneTimeToken[];
   events: ProjectEvent[];
+  /** Ids of processed payment webhooks (Razorpay retries deliveries). */
+  webhookEvents: string[];
 }
 
 /** Runtime incident shown on the project page (crash, automatic restart, recovery, rollback). */
@@ -156,7 +172,7 @@ export interface ProjectEvent {
 
 /** Small JSON-file database: in-memory reads, atomic serialized writes. No third-party packages. */
 export class Store {
-  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [], events: [] };
+  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [], events: [], webhookEvents: [] };
   private static queue: Promise<void> = Promise.resolve();
 
   static async init(): Promise<void> {
@@ -174,12 +190,15 @@ export class Store {
           passwordChangedAt: u.passwordChangedAt ?? null,
           emailVerifiedAt: u.emailVerifiedAt === undefined ? u.createdAt : u.emailVerifiedAt,
           github: u.github ?? null,
+          plan: u.plan ?? 'free',
+          subscription: u.subscription ?? null,
         })),
         settings: { allowSignup: parsed.settings?.allowSignup ?? null, maxProjectsPerUser: parsed.settings?.maxProjectsPerUser ?? null },
         audit: parsed.audit ?? [],
         sessions: parsed.sessions ?? [],
         tokens: parsed.tokens ?? [],
         events: parsed.events ?? [],
+        webhookEvents: parsed.webhookEvents ?? [],
         projects: (parsed.projects ?? []).map((p) => ({
           ...p,
           kindPref: p.kindPref ?? null,
@@ -396,6 +415,20 @@ export class Store {
     await this.save();
   }
 
+  // ── billing ────────────────────────────────────────────
+  /** true the first time an event id is seen; later deliveries of the same event are ignored. */
+  static async markWebhookEvent(id: string): Promise<boolean> {
+    if (this.db.webhookEvents.includes(id)) return false;
+    this.db.webhookEvents.unshift(id);
+    this.db.webhookEvents.length = Math.min(this.db.webhookEvents.length, 2000);
+    await this.save();
+    return true;
+  }
+
+  static userBySubscription(subscriptionId: string): User | undefined {
+    return this.db.users.find((u) => u.subscription?.id === subscriptionId);
+  }
+
   // ── runtime events ─────────────────────────────────────
   static async addEvent(projectId: string, kind: ProjectEvent['kind'], message: string): Promise<void> {
     this.db.events.unshift({ id: this.newId('e'), projectId, at: new Date().toISOString(), kind, message });
@@ -449,4 +482,22 @@ export class Store {
     await this.save();
     return deployment;
   }
+}
+
+/**
+ * What a user may use. With billing off, the old behaviour stays: per-user override, admin setting or
+ * HOSTX_MAX_PROJECTS, and the global HOSTX_APP_MEMORY / HOSTX_APP_CPUS without sleeping.
+ */
+export function limitsFor(user: User | undefined): PlanLimits {
+  const legacyProjects = Store.settings().maxProjectsPerUser ?? config.limits.maxProjectsPerUser;
+  const base: PlanLimits = billingEnabled() && user
+    ? PLANS[user.plan]
+    : { projects: legacyProjects, databases: 1000, memory: config.limits.memory, cpus: config.limits.cpus, sleepAfterMinutes: null };
+  // Admins are never limited by plans; an admin-set project limit always wins.
+  const admin = user?.role === 'admin';
+  return {
+    ...base,
+    projects: user?.maxProjects ?? (admin ? Math.max(base.projects, 100) : base.projects),
+    sleepAfterMinutes: admin ? null : base.sleepAfterMinutes,
+  };
 }

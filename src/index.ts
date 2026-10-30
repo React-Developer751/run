@@ -3,12 +3,14 @@ import { Router, createApiServer } from './utils/http.js';
 import { logger } from './utils/logger.js';
 import { registerAdminRoutes } from './routes/admin.routes.js';
 import { registerAuthRoutes } from './routes/auth.routes.js';
+import { registerBillingRoutes } from './routes/billing.routes.js';
 import { registerDeployRoutes } from './routes/deploy.routes.js';
 import { AutoDeployService } from './services/autodeploy.service.js';
 import { AuthService } from './services/auth.service.js';
 import { DeployService } from './services/deploy.service.js';
 import { MongoService } from './services/mongo.service.js';
 import { MonitorService } from './services/monitor.service.js';
+import { SleepService } from './services/sleep.service.js';
 import { ProxyService } from './services/proxy.service.js';
 import { RunnerService } from './services/runner.service.js';
 import { Store } from './services/store.service.js';
@@ -30,6 +32,7 @@ async function main(): Promise<void> {
   registerAuthRoutes(router);
   registerDeployRoutes(router);
   registerAdminRoutes(router);
+  registerBillingRoutes(router);
 
   // Control plane: dashboard talks to this API (register, login, deploy, logs...).
   const apiServer = createApiServer(router, (req) => AuthService.authenticate(req));
@@ -55,6 +58,7 @@ async function main(): Promise<void> {
   void DeployService.recover().then(() => {
     AutoDeployService.start();
     MonitorService.start();
+    SleepService.start();
   });
 
   // Deployed apps are detached from HostX, so stopping the engine never takes them down.

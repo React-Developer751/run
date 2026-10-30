@@ -18,6 +18,7 @@ import { DeployService } from '../services/deploy.service.js';
 import { GitHubService } from '../services/github.service.js';
 import { DeployLog } from '../services/log.service.js';
 import { MongoService } from '../services/mongo.service.js';
+import { billingEnabled } from '../config/plans.js';
 import { RunnerService } from '../services/runner.service.js';
 import { Store, type Deployment, type Project } from '../services/store.service.js';
 
@@ -88,6 +89,7 @@ export class DeployController {
       databases: MongoService.available(),
       github: GitHubService.enabled(),
       captcha: Boolean(config.turnstileSecret),
+      billing: billingEnabled(),
       signupOpen: Store.allUsers().length === 0 || (Store.settings().allowSignup ?? config.allowSignup),
       time: new Date().toISOString(),
     };

@@ -6,7 +6,7 @@ import { logger } from '../utils/logger.js';
 import { PortService } from './port.service.js';
 import { installCommand, type Detection } from './detect.service.js';
 import type { AppHealth, DeployContext, Runner, RuntimePatch } from './runner.service.js';
-import { Store, type Project } from './store.service.js';
+import { Store, limitsFor, type Project } from './store.service.js';
 
 const DOCKERFILE = '.hostx.Dockerfile';
 const NGINX_CONF = '.hostx.nginx.conf';
@@ -154,6 +154,8 @@ export class DockerRunner implements Runner {
     await fs.writeFile(envFile, lines.join('\n'), { mode: 0o600 });
 
     await exec('docker', ['rm', '-f', name]);
+    // Memory and CPU come from the owner's plan (or the global HOSTX_APP_* limits when billing is off).
+    const limits = limitsFor(Store.getUserById(project.userId));
     try {
       await run(
         'docker',
@@ -161,9 +163,9 @@ export class DockerRunner implements Runner {
           'run', '-d',
           '--name', name,
           '--label', `hostx.project=${project.id}`,
-          `--memory=${config.limits.memory}`,
-          `--memory-swap=${config.limits.memory}`,
-          `--cpus=${config.limits.cpus}`,
+          `--memory=${limits.memory}`,
+          `--memory-swap=${limits.memory}`,
+          `--cpus=${limits.cpus}`,
           `--pids-limit=${config.limits.pids}`,
           '--restart', 'unless-stopped',
           '--network', networkName(project),
@@ -242,6 +244,11 @@ export class DockerRunner implements Runner {
 
   async isAlive(project: Project): Promise<boolean> {
     return this.containerRunning(containerName(project));
+  }
+
+  /** Applies new memory/CPU limits to the running container without a restart (plan change). */
+  async updateLimits(project: Project, memory: string, cpus: string): Promise<void> {
+    await exec('docker', ['update', `--memory=${memory}`, `--memory-swap=${memory}`, `--cpus=${cpus}`, containerName(project)]);
   }
 
   async health(project: Project): Promise<AppHealth> {

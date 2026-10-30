@@ -120,6 +120,15 @@ export const config = {
 
   portRange: { min: 5001, max: 5999 },
 
+  // Razorpay subscriptions. Billing (and plan limits) are on only when key, secret and webhook secret are set.
+  razorpay: {
+    keyId: env.HOSTX_RAZORPAY_KEY_ID ?? '',
+    keySecret: env.HOSTX_RAZORPAY_KEY_SECRET ?? '',
+    webhookSecret: env.HOSTX_RAZORPAY_WEBHOOK_SECRET ?? '',
+    // Plan ids created in the Razorpay dashboard (Subscriptions -> Plans).
+    planIds: { starter: env.HOSTX_RAZORPAY_PLAN_STARTER ?? '', pro: env.HOSTX_RAZORPAY_PLAN_PRO ?? '' },
+  },
+
   // Users' apps must not share a registrable domain with the dashboard/API (see checkDomains). Escape hatch for old setups.
   allowSharedDomain: env.HOSTX_ALLOW_SHARED_DOMAIN === 'true',
 

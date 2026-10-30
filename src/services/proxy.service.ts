@@ -5,6 +5,7 @@ import path from 'node:path';
 import { config } from '../config/index.js';
 import { clientIp } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
+import { SleepService } from './sleep.service.js';
 import { Store, type Project } from './store.service.js';
 
 const MIME: Record<string, string> = {
@@ -98,15 +99,26 @@ function serveStatic(project: Project, req: http.IncomingMessage, res: http.Serv
 export class ProxyService {
   /** Host-header based reverse proxy built on node:http only. Handles HTTP, streaming and WebSocket upgrades. */
   public static createProxyServer(): http.Server {
-    const server = http.createServer((req, res) => {
+    const server = http.createServer(async (req, res) => {
       // yourapps.app and www.yourapps.app have no app of their own: send visitors to the dashboard.
       const hostname = (req.headers.host ?? '').split(':')[0]?.toLowerCase();
       if (config.webOrigins[0] && (hostname === config.baseDomain || hostname === `www.${config.baseDomain}`)) {
         res.writeHead(302, { Location: config.webOrigins[0], 'Cache-Control': 'no-store' });
         return res.end();
       }
-      const project = resolveProject(req.headers.host);
+      let project = resolveProject(req.headers.host);
       if (!project) return statusPage(res, 404, 'App not found', 'No deployment exists at this address.');
+      SleepService.touch(project.id);
+      if (project.status === 'sleeping') {
+        // Free plan: hold this request while the app starts (usually a few seconds), like Render's free tier.
+        req.pause();
+        try {
+          project = await SleepService.wake(project);
+        } catch {
+          return statusPage(res, 503, 'App is waking up', 'This app was asleep and could not start just now. Try again in a moment.');
+        }
+        // The paused body is delivered by req.pipe() below.
+      }
       if (!isServing(project)) {
         const msg =
           project.status === 'deploying'

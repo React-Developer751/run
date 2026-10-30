@@ -7,7 +7,8 @@ import { HttpError } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { networkName } from './docker.service.js';
 import { RunnerService } from './runner.service.js';
-import { Store, type Project, type ProjectDatabase } from './store.service.js';
+import { billingEnabled } from '../config/plans.js';
+import { Store, limitsFor, type Project, type ProjectDatabase } from './store.service.js';
 
 const CONTAINER = 'hostx-mongo';
 const VOLUME = 'hostx-mongo-data';
@@ -134,6 +135,10 @@ export class MongoService {
   static async create(project: Project): Promise<Project> {
     if (!this.available()) throw new HttpError(503, 'Databases are not available on this server');
     if (project.database) throw new HttpError(409, 'This project already has a database');
+    const limit = limitsFor(Store.getUserById(project.userId)).databases;
+    if (Store.projectsOf(project.userId).filter((p) => p.database).length >= limit) {
+      throw new HttpError(403, `Database limit reached (${limit})${billingEnabled() ? '. Upgrade your plan on the Billing page for more.' : '.'}`);
+    }
     const suffix = project.id.replace(/[^a-z0-9]/gi, '');
     const db: ProjectDatabase = {
       name: `db_${suffix}`,

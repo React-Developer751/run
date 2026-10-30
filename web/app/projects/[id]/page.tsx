@@ -217,9 +217,9 @@ export default function ProjectPage() {
             <button className="btn" onClick={redeploy} disabled={deploying || busy !== ''}>
               {busy === 'deploy' ? <span className="spinner" /> : <Icon name="refresh" />} Redeploy
             </button>
-            {project.status === 'stopped' || project.status === 'crashed' ? (
+            {project.status === 'stopped' || project.status === 'crashed' || project.status === 'sleeping' ? (
               <button className="btn" disabled={busy !== ''} onClick={() => act('start', () => api.start(id), 'App started')}>
-                {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} {project.status === 'crashed' ? 'Restart' : 'Start'}
+                {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} {project.status === 'crashed' ? 'Restart' : project.status === 'sleeping' ? 'Wake up' : 'Start'}
               </button>
             ) : (
               <button className="btn" disabled={deploying || busy !== '' || project.status === 'failed'} onClick={() => act('stop', () => api.stop(id), 'App stopped')}>
@@ -230,6 +230,11 @@ export default function ProjectPage() {
         </div>
 
         {error && <div className="error-box" style={{ marginBottom: 20 }}>{error}</div>}
+        {project.status === 'sleeping' && (
+          <div className="notice-box" style={{ marginBottom: 20 }}>
+            This service is sleeping because it had no visitors for a while (Free plan). The next visit wakes it up in a few seconds. <a href="/billing">Upgrade</a> to keep it always on.
+          </div>
+        )}
         {project.status === 'crashed' && (
           <div className="error-box" style={{ marginBottom: 20 }}>
             This app crashed and is not serving traffic. Check <button className="link-btn" onClick={() => setTab('runtime')}>Runtime logs</button>, then restart, redeploy or roll back to an earlier version.

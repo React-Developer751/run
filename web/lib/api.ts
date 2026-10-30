@@ -1,4 +1,4 @@
-import type { AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BuildConfig, Deployment, GitHubRepo, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
+import type { AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 export class ApiError extends Error {
@@ -80,6 +80,13 @@ export const api = {
   scan: (repoUrl: string, branch?: string, githubInstallationId?: number) =>
     request<{ repoName: string; folders: ScanFolder[] }>('/api/scan', 'POST', { repoUrl, branch: branch || undefined, githubInstallationId }),
 
+  billing: {
+    plans: () => request<{ enabled: boolean; plans: Plan[] }>('/api/billing/plans'),
+    me: () => request<BillingInfo>('/api/billing'),
+    subscribe: (plan: PlanId) => request<{ url: string | null; changed: boolean }>('/api/billing/subscribe', 'POST', { plan }),
+    cancel: () => request<{ ok: true }>('/api/billing/cancel', 'POST', {}),
+  },
+
   github: {
     status: () => request<GitHubStatus>('/api/github'),
     repos: () => request<{ repos: GitHubRepo[] }>('/api/github/repos'),
@@ -110,7 +117,7 @@ export const api = {
   admin: {
     stats: () => request<AdminStats>('/api/admin/stats'),
     users: () => request<{ users: AdminUser[] }>('/api/admin/users'),
-    updateUser: (id: string, patch: { role?: 'admin' | 'user'; suspended?: boolean; maxProjects?: number | null }) =>
+    updateUser: (id: string, patch: { role?: 'admin' | 'user'; suspended?: boolean; maxProjects?: number | null; plan?: PlanId }) =>
       request<{ user: AdminUser }>(`/api/admin/users/${id}`, 'PATCH', patch),
     resetPassword: (id: string) => request<{ password: string }>(`/api/admin/users/${id}/reset-password`, 'POST', {}),
     deleteUser: (id: string) => request<{ ok: true }>(`/api/admin/users/${id}`, 'DELETE'),
