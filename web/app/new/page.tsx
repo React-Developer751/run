@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { BuildSettings, EMPTY_CONFIG, folderToConfig } from '@/components/BuildSettings';
 import { EnvEditor, envFromRows, type EnvRow } from '@/components/EnvEditor';
 import { Icon, type IconName } from '@/components/Icon';
@@ -68,6 +68,8 @@ export default function NewDeploy() {
   const [github, setGithub] = useState<GitHubStatus | null>(null);
   const [repos, setRepos] = useState<GitHubRepo[] | null>(null);
   const [repoError, setRepoError] = useState('');
+  // Only the newest scan may fill in the form: an older, slower one (e.g. after "Change repository") is ignored.
+  const scanSeq = useRef(0);
 
   // ?type=static|web preselects step 1; ?github=connected means we just came back from GitHub with new access.
   useEffect(() => {
@@ -102,11 +104,13 @@ export default function NewDeploy() {
   const typedRepo = looksLikeRepoUrl(query) ? repos?.find((r) => normalizeRepo(r.url) === normalizeRepo(query)) : undefined;
 
   const scan = async (url: string, fromGithub: GitHubRepo | null, scanBranch: string) => {
+    const seq = ++scanSeq.current;
     setError('');
     setScanning(true);
     setScanned(false);
     try {
       const r = await api.scan(url, scanBranch, fromGithub?.installationId);
+      if (seq !== scanSeq.current) return;
       setFolders(r.folders);
       const best = pickFolder(r.folders, kind ?? 'node');
       setConfig(best ? { ...folderToConfig(best), kind: kind ?? best.kind } : { ...EMPTY_CONFIG, kind: kind ?? 'node' });
@@ -114,9 +118,9 @@ export default function NewDeploy() {
       setScannedBranch(scanBranch);
       setScanned(true);
     } catch (err) {
-      setError((err as Error).message);
+      if (seq === scanSeq.current) setError((err as Error).message);
     } finally {
-      setScanning(false);
+      if (seq === scanSeq.current) setScanning(false);
     }
   };
 
@@ -129,6 +133,8 @@ export default function NewDeploy() {
   };
 
   const backToRepos = () => {
+    scanSeq.current++; // drop any scan still running
+    setScanning(false);
     setRepoUrl('');
     setRepo(null);
     setScanned(false);
@@ -250,7 +256,8 @@ export default function NewDeploy() {
               {repos && repos.length > 0 && (
                 <div className="repo-list" role="list">
                   {filtered.map((r) => (
-                    <button type="button" role="listitem" key={`${r.installationId}:${r.fullName}`} className="repo-row" onClick={() => choose(r.url, r)}>
+                    <div role="listitem" key={`${r.installationId}:${r.fullName}`}>
+                    <button type="button" className="repo-row" onClick={() => choose(r.url, r)}>
                       <Icon name="branch" />
                       <span className="repo-main">
                         <b className="mono">{r.fullName}</b>
@@ -258,6 +265,7 @@ export default function NewDeploy() {
                       </span>
                       <span className="btn btn-sm">Connect</span>
                     </button>
+                    </div>
                   ))}
                   {filtered.length === 0 && !looksLikeRepoUrl(query) && <div className="muted" style={{ padding: 12 }}>No repository matches “{query}”.</div>}
                 </div>
@@ -349,7 +357,8 @@ export default function NewDeploy() {
                     </span>
                   </label>
 
-                  <button className="btn btn-primary btn-lg" onClick={deploy} disabled={deploying || name.trim().length < 2 || startMissing || outputMissing}>
+                  {branch.trim() !== scannedBranch && <div className="hint">Branch changed: click Re-scan so the settings match that branch.</div>}
+                  <button className="btn btn-primary btn-lg" onClick={deploy} disabled={deploying || scanning || branch.trim() !== scannedBranch || name.trim().length < 2 || startMissing || outputMissing}>
                     {deploying ? <><span className="spinner" /> Starting…</> : <>Create {typeLabel(config.kind)} <Icon name="arrow" /></>}
                   </button>
                 </>

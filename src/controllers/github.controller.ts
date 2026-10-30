@@ -39,7 +39,11 @@ export class GitHubController {
   /** Starts "Continue with GitHub". The nonce cookie ties the GitHub round trip to this browser (login CSRF). */
   static login(ctx: Ctx) {
     if (!GitHubService.enabled()) return redirect(ctx, `${config.dashboardUrl}/login?github=disabled`);
-    loginLimiter.hit(`gh-login:${ctx.ip}`);
+    try {
+      loginLimiter.hit(`gh-login:${ctx.ip}`);
+    } catch {
+      return redirect(ctx, `${config.dashboardUrl}/login?github=rate-limited`);
+    }
     const nonce = crypto.randomBytes(18).toString('base64url');
     ctx.res.setHeader('Set-Cookie', nonceCookie(ctx, nonce, 600));
     return redirect(ctx, GitHubService.loginUrl(nonce));

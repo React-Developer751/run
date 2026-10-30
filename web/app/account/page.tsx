@@ -105,7 +105,7 @@ function DeleteAccountCard() {
       <div>
         <h2 style={{ fontSize: 18, color: 'var(--bad)' }}>Delete account</h2>
         <p className="muted" style={{ marginTop: 6 }}>
-          Permanently deletes your account, every app, database (with all data), custom domain and log, and cancels any paid subscription
+          Permanently deletes your account, every app, custom domain and log (your MongoDB Atlas data is not touched), and cancels any paid subscription
           immediately. This cannot be undone.
         </p>
       </div>

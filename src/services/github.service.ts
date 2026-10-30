@@ -184,9 +184,19 @@ export class GitHubService {
     this.requireEnabled();
     const auth = await this.userAuth(code);
     const me = await this.request<{ id: number; login: string }>('/user', auth);
-    const other = Store.getUserByGithubId(me.id);
+    const other = Store.getUserByGithubId(me.id) ?? this.legacyLink(me.login, await this.userInstallations(auth));
     if (other && other.id !== user.id) throw new HttpError(409, `@${me.login} is already linked to another ${config.dashboardUrl} account`);
     return Store.updateUser(user.id, { github: { id: me.id, login: me.login, installationIds: await this.userInstallations(auth), linkedAt: new Date().toISOString() } });
+  }
+
+  /**
+   * Links made before GitHub ids were stored only have the login. Match those by login AND a shared installation
+   * (logins can be renamed and reused; installation ids cannot), so the user is backfilled instead of duplicated.
+   */
+  private static legacyLink(login: string, installationIds: number[]): User | undefined {
+    return Store.allUsers().find(
+      (u) => u.github && u.github.id === undefined && u.github.login.toLowerCase() === login.toLowerCase() && u.github.installationIds.some((i) => installationIds.includes(i)),
+    );
   }
 
   /** The GitHub account's verified primary email (needs the app's "Email addresses: read" permission). */
@@ -211,15 +221,21 @@ export class GitHubService {
     const installationIds = await this.userInstallations(auth);
     const github = { id: me.id, login: me.login, installationIds, linkedAt: new Date().toISOString() };
 
-    const linked = Store.getUserByGithubId(me.id);
+    const linked = Store.getUserByGithubId(me.id) ?? this.legacyLink(me.login, installationIds);
     if (linked) return { user: await Store.updateUser(linked.id, { github, lastLoginAt: new Date().toISOString() }), created: false };
 
     const email = await this.verifiedEmail(auth, me.email);
     if (!email) throw new HttpError(400, 'no-verified-email');
     const existing = Store.getUserByEmail(email);
     if (existing) {
-      // GitHub has verified this address, so it is the same person: link and confirm the email.
-      const user = await Store.updateUser(existing.id, { github, lastLoginAt: new Date().toISOString(), emailVerifiedAt: existing.emailVerifiedAt ?? new Date().toISOString() });
+      // GitHub has verified this address, so the GitHub user owns it. If the HostX account never proved the address,
+      // somebody else may have registered it first ("pre-hijack"): their password and sessions must stop working.
+      const now = new Date().toISOString();
+      if (!existing.emailVerifiedAt) {
+        await Store.updateUser(existing.id, { passwordHash: await AuthService.hashPassword(crypto.randomBytes(32).toString('base64url')), passwordChangedAt: now });
+        await Store.revokeUserSessions(existing.id);
+      }
+      const user = await Store.updateUser(existing.id, { github, lastLoginAt: now, emailVerifiedAt: existing.emailVerifiedAt ?? now });
       return { user, created: false };
     }
 

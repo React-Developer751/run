@@ -544,7 +544,7 @@ p { margin: 0; }
 .search-box .input { padding-left: 42px; }
 .repo-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; max-height: 380px; overflow-y: auto; }
 .repo-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; cursor: pointer; font: inherit; color: inherit; width: 100%; }
-.repo-row:last-child { border-bottom: 0; }
+.repo-list > [role='listitem']:last-child > .repo-row { border-bottom: 0; }
 .repo-row:hover { background: var(--s1); }
 .repo-row > .icon { color: var(--dim); flex: none; }
 .repo-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }

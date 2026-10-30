@@ -15,6 +15,7 @@ const GITHUB_ERRORS: Record<string, string> = {
   'no-verified-email': 'Your GitHub account has no verified email address we can use. Verify one on GitHub, or sign up with email.',
   suspended: 'This account has been suspended. Contact your administrator.',
   disabled: 'Sign-in with GitHub is not available on this server.',
+  'rate-limited': 'Too many sign-in attempts. Please wait a few minutes and try again.',
 };
 
 export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
