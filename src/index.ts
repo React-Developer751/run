@@ -12,6 +12,8 @@ import { MongoService } from './services/mongo.service.js';
 import { MonitorService } from './services/monitor.service.js';
 import { SleepService } from './services/sleep.service.js';
 import { DomainService } from './services/domain.service.js';
+import { BackupService } from './services/backup.service.js';
+import { Db } from './services/db.service.js';
 import { ProxyService } from './services/proxy.service.js';
 import { RunnerService } from './services/runner.service.js';
 import { Store } from './services/store.service.js';
@@ -61,6 +63,7 @@ async function main(): Promise<void> {
     MonitorService.start();
     SleepService.start();
     DomainService.start();
+    BackupService.start();
   });
 
   // Deployed apps are detached from HostX, so stopping the engine never takes them down.
@@ -68,7 +71,10 @@ async function main(): Promise<void> {
     logger.info('Shutting down HostX (deployed apps keep running)...');
     apiServer.close();
     proxyServer.close();
-    setTimeout(() => process.exit(0), 500).unref();
+    setTimeout(() => {
+      Db.close(); // checkpoints the WAL into the main file
+      process.exit(0);
+    }, 500).unref();
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

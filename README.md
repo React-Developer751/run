@@ -14,12 +14,12 @@ Browser ──► <slug>.localhost:8080 ──► Reverse Proxy (:8080) ──�
 |---|---|
 | `src/` | Engine (Node.js + TypeScript, **zero third-party runtime packages**) |
 | `web/` | Dashboard (Next.js) |
-| `data/` | Runtime state: `db.json` (users, projects), logs, static builds (git-ignored) |
+| `data/` | Runtime state: `hostx.db` (SQLite: users, projects, deployments…), `backups/`, `secret.key`, logs, static builds (git-ignored) |
 | `apps/` | Cloned repos, `apps/<projectId>/src` (git-ignored) |
 
 Engine layers: `routes → controllers → services`
 - `auth.service` — scrypt password hash + HS256 token (sirf `node:crypto`)
-- `store.service` — JSON-file DB, atomic writes
+- `store.service` + `db.service` — SQLite (`node:sqlite`, WAL), row-level transactional writes, in-memory read cache
 - `cloner.service` — shallow `git clone` + repo scan (har `package.json` wala folder)
 - `detect.service` — Vite / CRA / Next / Express etc. detect karta hai
 - `docker.service` / `process.service` — runners (neeche dekho)
@@ -27,6 +27,8 @@ Engine layers: `routes → controllers → services`
 - `proxy.service` — Host-header reverse proxy (HTTP + WebSocket) + static file server
 
 ## Run (development)
+
+**Node.js 22.13+ zaroori hai** (built-in SQLite). `nvm use` (`.nvmrc` = 22).
 
 ```bash
 # 1) Engine  (API :4000, proxy :8080)
@@ -69,7 +71,7 @@ Static sites (Vite/CRA): Docker mode mein nginx container; Process mode mein bui
 2. **Block the cloud metadata endpoint from containers** (otherwise a user's app can steal your VPS credentials): `iptables -I DOCKER-USER -d 169.254.169.254 -j DROP`.
 3. Firewall: only 80/443 (+SSH) public. Keep 3000, 4000, 8080 and 5001-5999 closed. Also set `HOSTX_PROXY_HOST=127.0.0.1` so the app proxy only listens for Caddy/nginx.
 4. Run the engine as a dedicated user. Docker group membership is root-equivalent, so protect that account (SSH keys only, no password login).
-5. **Back up `data/` (db.json + secret.key) together.** Do not change `HOSTX_SECRET` / `secret.key` afterwards: stored env vars become unreadable (they are encrypted with it).
+5. **Back up `data/backups/` + `data/secret.key` off the server** (e.g. nightly rsync / S3). The engine writes a consistent snapshot `data/backups/hostx-YYYY-MM-DD.db` every day and keeps 7 (`HOSTX_BACKUP_DAYS`). Do not change `HOSTX_SECRET` / `secret.key` afterwards: stored env vars become unreadable (they are encrypted with it).
 6. Set `HOSTX_ALLOW_SIGNUP=false` once your own accounts exist (open sign-up lets strangers run builds on your CPU).
 
 **Known limits / accepted risks:**
@@ -78,7 +80,7 @@ Static sites (Vite/CRA): Docker mode mein nginx container; Process mode mein bui
 - `docker build` (npm install of user code) is not memory-capped; it has a 10-minute timeout. On a small VPS keep signups closed.
 - Auth cookies are `SameSite=Lax`, so the dashboard and the API must share one registrable domain (e.g. `app.example.com` + `api.example.com`). Users' apps live on sibling subdomains, which is why every state-changing request is also checked against the dashboard `Origin`.
 - No 2FA yet; admin sees every user's build logs. Legal pages are templates: have them reviewed by a lawyer.
-- JSON-file database: single process only.
+- SQLite database: one engine process per server (the engine also owns Docker and ports on that machine, so this is by design).
 
 ## Login sessions (cookies)
 
@@ -185,6 +187,18 @@ Har 30 second engine har chalti app check karta hai:
 Har successful Docker deploy ki image rakhi jati hai (latest 3, `limits.rollbackImages`). Deployments tab mein purana version chuno → **Roll back to this version**: wahi image naye container mein start hoti hai (koi clone/build nahi, kuch second), health check ke baad traffic switch, purana version hata diya jata hai. Current env vars use hote hain. "Serving" tag batata hai abhi kaunsa deployment live hai.
 
 Rollback ke baad auto-deploy use turant undo nahi karta: polling "aakhri dekhe gaye commit" se compare karta hai, isliye agla deploy **naye push** par hi hoga. Process mode mein rollback nahi hai (wahan images nahi bantin).
+
+## Database (SQLite)
+
+Control-plane data (users, projects, deployments, sessions, tokens, events, audit log, settings) `data/hostx.db` mein, Node ke built-in `node:sqlite` se: koi naya package ya database server nahi.
+
+- **WAL mode:** crash ya power cut mein bhi file corrupt nahi hoti; har write ek chhota transaction hai (pehle har change par poori JSON file dobara likhi jaati thi).
+- **Integrity:** email, project slug aur session token par UNIQUE constraints (do sign-ups ek saath race karein to bhi duplicate nahi).
+- Har record `doc` (JSON) column mein + indexed columns. Naya field jodne ke liye migration nahi chahiye; schema versions `PRAGMA user_version` se (`src/services/db.service.ts` mein `MIGRATIONS`).
+- Secrets (env vars, webhook secret, database passwords) ab bhi AES-256-GCM se encrypted.
+- **Purane install:** pehli baar start par `data/db.json` apne aap SQLite mein import hota hai (ek transaction), aur file `db.json.migrated-<date>` naam se backup ke roop mein rehti hai. Sessions bhi migrate hote hain, koi logout nahi.
+- **Backups:** roz `data/backups/hostx-YYYY-MM-DD.db` (`VACUUM INTO`, chalte engine par safe), last 7 rakhe jaate hain. Restore: engine band karo, backup file ko `data/hostx.db` par copy karo (`-wal`/`-shm` hata do), start karo.
+- Inspect: `sqlite3 data/hostx.db "select id, email from users"`.
 
 ## Legal pages (launch + Razorpay activation)
 

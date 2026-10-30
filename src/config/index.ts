@@ -33,7 +33,10 @@ export const config = {
   rootDir: root,
   appsDir: path.join(root, 'apps'),
   dataDir: path.join(root, 'data'),
-  dbFile: path.join(root, 'data', 'db.json'),
+  // Control-plane database (SQLite). data/db.json is only read once, to migrate older installs.
+  sqliteFile: path.join(root, 'data', 'hostx.db'),
+  legacyDbFile: path.join(root, 'data', 'db.json'),
+  backupsDir: path.join(root, 'data', 'backups'),
   secretFile: path.join(root, 'data', 'secret.key'),
   logsDir: path.join(root, 'data', 'logs'),
   staticDir: path.join(root, 'data', 'static'),

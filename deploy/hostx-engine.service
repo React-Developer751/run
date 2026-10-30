@@ -6,7 +6,8 @@ Requires=docker.service
 
 [Service]
 WorkingDirectory=/opt/hostx
-ExecStart=/usr/bin/node dist/index.js
+# Node.js 22.13+ (built-in SQLite). The flag only hides node:sqlite's "experimental" notice.
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning dist/index.js
 Restart=always
 RestartSec=3
 User=hostx

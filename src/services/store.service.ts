@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import { config } from '../config/index.js';
 import { PLANS, billingEnabled, type PlanId, type PlanLimits } from '../config/plans.js';
 import { logger } from '../utils/logger.js';
+import { Db } from './db.service.js';
 import { DeployLog } from './log.service.js';
 import { Vault } from './vault.service.js';
 
@@ -187,91 +188,146 @@ export interface ProjectEvent {
   message: string;
 }
 
-/** Small JSON-file database: in-memory reads, atomic serialized writes. No third-party packages. */
+const normalizeUser = (u: User): User => ({
+  ...u,
+  role: u.role ?? 'user',
+  suspended: u.suspended ?? false,
+  maxProjects: u.maxProjects ?? null,
+  lastLoginAt: u.lastLoginAt ?? null,
+  passwordChangedAt: u.passwordChangedAt ?? null,
+  emailVerifiedAt: u.emailVerifiedAt === undefined ? u.createdAt : u.emailVerifiedAt,
+  github: u.github ?? null,
+  plan: u.plan ?? 'free',
+  termsAcceptedAt: u.termsAcceptedAt ?? null,
+  termsVersion: u.termsVersion ?? null,
+  subscription: u.subscription ?? null,
+});
+
+/** Fills fields added after a record was written; secrets are decrypted (they are encrypted at rest). */
+const loadProject = (p: Project): Project => ({
+  ...p,
+  kindPref: p.kindPref ?? null,
+  buildCommand: p.buildCommand ?? null,
+  startCommand: p.startCommand ?? null,
+  outputDir: p.outputDir ?? null,
+  autoDeploy: p.autoDeploy ?? true,
+  env: Object.fromEntries(Object.entries(p.env ?? {}).map(([k, v]) => [k, Vault.decrypt(v)])),
+  webhookSecret: Vault.decrypt(p.webhookSecret ?? crypto.randomBytes(24).toString('hex')),
+  database: p.database ? { ...p.database, password: Vault.decrypt(p.database.password) } : null,
+  githubInstallationId: p.githubInstallationId ?? null,
+  domains: p.domains ?? [],
+  liveDeploymentId: p.liveDeploymentId ?? null,
+  lastRemoteCommit: p.lastRemoteCommit ?? null,
+});
+
+const projectDoc = (p: Project): string =>
+  JSON.stringify({
+    ...p,
+    env: Object.fromEntries(Object.entries(p.env).map(([k, v]) => [k, Vault.encrypt(v)])),
+    webhookSecret: Vault.encrypt(p.webhookSecret),
+    database: p.database ? { ...p.database, password: Vault.encrypt(p.database.password) } : null,
+  });
+
+const normalizeDeployment = (d: Deployment): Deployment => ({ ...d, image: d.image ?? null, kind: d.kind ?? null, rollbackOf: d.rollbackOf ?? null });
+
+const docs = <T>(table: string, order = ''): T[] => Db.all<{ doc: string }>(`SELECT doc FROM ${table}${order}`).map((r) => JSON.parse(r.doc) as T);
+
+const EVENTS_PER_PROJECT = 50;
+const AUDIT_KEPT = 1000;
+const WEBHOOK_EVENTS_KEPT = 2000;
+
+/**
+ * SQLite-backed store (data/hostx.db, node:sqlite, WAL). Every write is a targeted row change inside a transaction,
+ * durable before the call resolves. Records are also kept in memory, so reads stay synchronous and cheap.
+ */
 export class Store {
   private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [], events: [], webhookEvents: [] };
-  private static queue: Promise<void> = Promise.resolve();
 
   static async init(): Promise<void> {
     await fs.mkdir(config.dataDir, { recursive: true, mode: 0o700 });
     await fs.chmod(config.dataDir, 0o700).catch(() => undefined);
-    try {
-      const parsed = JSON.parse(await fs.readFile(config.dbFile, 'utf8')) as Partial<Database>;
-      this.db = {
-        users: (parsed.users ?? []).map((u) => ({
-          ...u,
-          role: u.role ?? 'user',
-          suspended: u.suspended ?? false,
-          maxProjects: u.maxProjects ?? null,
-          lastLoginAt: u.lastLoginAt ?? null,
-          passwordChangedAt: u.passwordChangedAt ?? null,
-          emailVerifiedAt: u.emailVerifiedAt === undefined ? u.createdAt : u.emailVerifiedAt,
-          github: u.github ?? null,
-          plan: u.plan ?? 'free',
-          termsAcceptedAt: u.termsAcceptedAt ?? null,
-          termsVersion: u.termsVersion ?? null,
-          subscription: u.subscription ?? null,
-        })),
-        settings: { allowSignup: parsed.settings?.allowSignup ?? null, maxProjectsPerUser: parsed.settings?.maxProjectsPerUser ?? null },
-        audit: parsed.audit ?? [],
-        sessions: parsed.sessions ?? [],
-        tokens: parsed.tokens ?? [],
-        events: parsed.events ?? [],
-        webhookEvents: parsed.webhookEvents ?? [],
-        projects: (parsed.projects ?? []).map((p) => ({
-          ...p,
-          kindPref: p.kindPref ?? null,
-          buildCommand: p.buildCommand ?? null,
-          startCommand: p.startCommand ?? null,
-          outputDir: p.outputDir ?? null,
-          autoDeploy: p.autoDeploy ?? true,
-          webhookSecret: p.webhookSecret ?? crypto.randomBytes(24).toString('hex'),
-          database: p.database ?? null,
-          githubInstallationId: p.githubInstallationId ?? null,
-          domains: p.domains ?? [],
-          liveDeploymentId: p.liveDeploymentId ?? null,
-          lastRemoteCommit: p.lastRemoteCommit ?? null,
-        })),
-        deployments: (parsed.deployments ?? []).map((d) => ({ ...d, image: d.image ?? null, kind: d.kind ?? null, rollbackOf: d.rollbackOf ?? null })),
-      };
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
-    }
-    for (const p of this.db.projects) {
-      p.env = Object.fromEntries(Object.entries(p.env ?? {}).map(([k, v]) => [k, Vault.decrypt(v)]));
-      p.webhookSecret = Vault.decrypt(p.webhookSecret);
-      if (p.database) p.database = { ...p.database, password: Vault.decrypt(p.database.password) };
-    }
+    Db.open(config.sqliteFile);
+    await this.importLegacyJson();
+
+    const settings = Db.all<{ doc: string }>(`SELECT doc FROM settings WHERE key = 'platform'`)[0];
+    this.db = {
+      users: docs<User>('users').map(normalizeUser),
+      projects: docs<Project>('projects').map(loadProject),
+      deployments: docs<Deployment>('deployments').map(normalizeDeployment),
+      sessions: docs<Session>('sessions'),
+      tokens: docs<OneTimeToken>('tokens'),
+      events: docs<ProjectEvent>('events', ' ORDER BY at DESC'),
+      audit: docs<AuditEntry>('audit', ' ORDER BY at DESC'),
+      webhookEvents: Db.all<{ id: string }>('SELECT id FROM webhook_events ORDER BY at DESC').map((r) => r.id),
+      settings: settings ? (JSON.parse(settings.doc) as Settings) : { allowSignup: null, maxProjectsPerUser: null },
+    };
+
     // Accounts created before roles existed: make sure somebody can administer the platform.
     if (this.db.users.length > 0 && !this.db.users.some((u) => u.role === 'admin')) {
       const oldest = [...this.db.users].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
       if (oldest) {
-        oldest.role = 'admin';
+        await this.updateUser(oldest.id, { role: 'admin' });
         logger.info(`No admin existed: promoted ${oldest.email}`);
       }
     }
-    await this.save(); // re-write once so legacy plaintext secrets get encrypted
   }
 
-  private static save(): Promise<void> {
-    const onDisk = {
-      ...this.db,
-      projects: this.db.projects.map((p) => ({
-        ...p,
-        env: Object.fromEntries(Object.entries(p.env).map(([k, v]) => [k, Vault.encrypt(v)])),
-        webhookSecret: Vault.encrypt(p.webhookSecret),
-        database: p.database ? { ...p.database, password: Vault.encrypt(p.database.password) } : null,
-      })),
-    };
-    const snapshot = JSON.stringify(onDisk, null, 2);
-    this.queue = this.queue
-      .then(async () => {
-        const tmp = `${config.dbFile}.tmp`;
-        await fs.writeFile(tmp, snapshot, { mode: 0o600 });
-        await fs.rename(tmp, config.dbFile);
-      })
-      .catch((err) => logger.error('Failed to persist database', err));
-    return this.queue;
+  /** One-time move from the old data/db.json into SQLite. The JSON file is kept (renamed) as a backup. */
+  private static async importLegacyJson(): Promise<void> {
+    let raw: string;
+    try {
+      raw = await fs.readFile(config.legacyDbFile, 'utf8');
+    } catch {
+      return;
+    }
+    const empty = Db.all<{ n: number }>('SELECT COUNT(*) AS n FROM users')[0]?.n === 0;
+    if (!empty) {
+      logger.warn(`${config.legacyDbFile} exists but the SQLite database already has data: ignoring the JSON file`);
+      return;
+    }
+    const parsed = JSON.parse(raw) as Partial<Database>;
+    const users = (parsed.users ?? []).map(normalizeUser);
+    const projects = (parsed.projects ?? []).map(loadProject);
+    Db.tx(() => {
+      for (const u of users) this.writeUser(u);
+      for (const p of projects) this.writeProject(p);
+      for (const d of (parsed.deployments ?? []).map(normalizeDeployment)) this.writeDeployment(d);
+      for (const s of parsed.sessions ?? []) this.writeSession(s);
+      for (const t of parsed.tokens ?? []) this.writeToken(t);
+      for (const e of parsed.events ?? []) Db.put('events', { id: e.id, project_id: e.projectId, at: e.at, doc: JSON.stringify(e) });
+      for (const a of parsed.audit ?? []) Db.put('audit', { id: a.id, at: a.at, doc: JSON.stringify(a) });
+      for (const id of parsed.webhookEvents ?? []) Db.put('webhook_events', { id, at: new Date().toISOString() });
+      if (parsed.settings) Db.put('settings', { key: 'platform', doc: JSON.stringify(parsed.settings) }, 'key');
+    });
+    const moved = `${config.legacyDbFile}.migrated-${new Date().toISOString().slice(0, 10)}`;
+    await fs.rename(config.legacyDbFile, moved);
+    logger.info(`Migrated ${users.length} users and ${projects.length} projects from db.json to SQLite (old file kept as ${moved})`);
+  }
+
+  // ── row writers (the only code that talks to SQLite) ────
+  private static writeUser(u: User): void {
+    Db.put('users', { id: u.id, email: u.email, doc: JSON.stringify(u) });
+  }
+
+  private static writeProject(p: Project): void {
+    Db.put('projects', { id: p.id, user_id: p.userId, slug: p.slug, doc: projectDoc(p) });
+  }
+
+  private static writeDeployment(d: Deployment): void {
+    Db.put('deployments', { id: d.id, project_id: d.projectId, created_at: d.createdAt, doc: JSON.stringify(d) });
+  }
+
+  private static writeSession(s: Session): void {
+    Db.put('sessions', { id: s.id, user_id: s.userId, family_id: s.familyId, token_hash: s.tokenHash, expires_at: s.expiresAt, doc: JSON.stringify(s) });
+  }
+
+  private static writeToken(t: OneTimeToken): void {
+    Db.put('tokens', { id: t.id, user_id: t.userId, hash: t.hash, expires_at: t.expiresAt, doc: JSON.stringify(t) });
+  }
+
+  /** Consistent snapshot of the database file (see BackupService). */
+  static backupTo(file: string): void {
+    Db.backupTo(file);
   }
 
   static newId(prefix: string): string {
@@ -294,15 +350,20 @@ export class Store {
   static async updateUser(id: string, patch: Partial<User>): Promise<User> {
     const user = this.getUserById(id);
     if (!user) throw new Error(`User ${id} not found`);
+    this.writeUser({ ...user, ...patch }); // memory changes only once the row is saved
     Object.assign(user, patch);
-    await this.save();
     return user;
   }
 
   static async deleteUser(id: string): Promise<void> {
+    Db.tx(() => {
+      Db.run('DELETE FROM tokens WHERE user_id = ?', id);
+      Db.run('DELETE FROM sessions WHERE user_id = ?', id);
+      Db.run('DELETE FROM users WHERE id = ?', id);
+    });
     this.db.users = this.db.users.filter((u) => u.id !== id);
     this.db.tokens = this.db.tokens.filter((t) => t.userId !== id);
-    await this.save();
+    this.db.sessions = this.db.sessions.filter((s) => s.userId !== id);
   }
 
   // ── sessions (refresh tokens) ──────────────────────────
@@ -317,40 +378,52 @@ export class Store {
   static async addSession(session: Session): Promise<void> {
     const now = Date.now();
     // Keep rotated rows 24h so a replayed (stolen) token is still recognised; drop everything older/expired.
-    this.db.sessions = this.db.sessions.filter(
-      (s) => new Date(s.expiresAt).getTime() > now && !(s.rotatedAt && now - new Date(s.rotatedAt).getTime() > 24 * 3600_000),
-    );
+    const keep = (s: Session) => new Date(s.expiresAt).getTime() > now && !(s.rotatedAt && now - new Date(s.rotatedAt).getTime() > 24 * 3600_000);
+    const dropped = this.db.sessions.filter((s) => !keep(s));
+    Db.tx(() => {
+      for (const s of dropped) Db.run('DELETE FROM sessions WHERE id = ?', s.id);
+      this.writeSession(session);
+    });
+    this.db.sessions = this.db.sessions.filter(keep);
     this.db.sessions.push(session);
-    await this.save();
   }
 
   static async updateSession(id: string, patch: Partial<Session>): Promise<void> {
     const s = this.getSession(id);
-    if (s) Object.assign(s, patch);
-    await this.save();
+    if (!s) return;
+    this.writeSession({ ...s, ...patch });
+    Object.assign(s, patch);
+  }
+
+  private static revokeWhere(match: (s: Session) => boolean): void {
+    const at = new Date().toISOString();
+    const targets = this.db.sessions.filter((s) => match(s) && !s.revokedAt);
+    Db.tx(() => {
+      for (const s of targets) this.writeSession({ ...s, revokedAt: at });
+    });
+    for (const s of targets) s.revokedAt = at;
   }
 
   static async revokeFamily(familyId: string): Promise<void> {
-    const at = new Date().toISOString();
-    for (const s of this.db.sessions) if (s.familyId === familyId && !s.revokedAt) s.revokedAt = at;
-    await this.save();
+    this.revokeWhere((s) => s.familyId === familyId);
   }
 
   static async revokeUserSessions(userId: string): Promise<void> {
-    const at = new Date().toISOString();
-    for (const s of this.db.sessions) if (s.userId === userId && !s.revokedAt) s.revokedAt = at;
-    await this.save();
+    this.revokeWhere((s) => s.userId === userId);
   }
 
   // ── one-time tokens (email links) ──────────────────────
   /** Stores a new token and invalidates older unused ones of the same kind for that user. */
   static async addToken(token: OneTimeToken): Promise<void> {
     const now = Date.now();
-    this.db.tokens = this.db.tokens.filter(
-      (t) => new Date(t.expiresAt).getTime() > now && !t.usedAt && !(t.userId === token.userId && t.kind === token.kind),
-    );
+    const keep = (t: OneTimeToken) => new Date(t.expiresAt).getTime() > now && !t.usedAt && !(t.userId === token.userId && t.kind === token.kind);
+    const dropped = this.db.tokens.filter((t) => !keep(t));
+    Db.tx(() => {
+      for (const t of dropped) Db.run('DELETE FROM tokens WHERE id = ?', t.id);
+      this.writeToken(token);
+    });
+    this.db.tokens = this.db.tokens.filter(keep);
     this.db.tokens.push(token);
-    await this.save();
   }
 
   /** A valid (unused, unexpired) token of that kind, or undefined. */
@@ -361,8 +434,10 @@ export class Store {
 
   static async useToken(id: string): Promise<void> {
     const t = this.db.tokens.find((x) => x.id === id);
-    if (t) t.usedAt = new Date().toISOString();
-    await this.save();
+    if (!t) return;
+    const usedAt = new Date().toISOString();
+    this.writeToken({ ...t, usedAt });
+    t.usedAt = usedAt;
   }
 
   static settings(): Settings {
@@ -370,15 +445,21 @@ export class Store {
   }
 
   static async updateSettings(patch: Partial<Settings>): Promise<Settings> {
+    const next = { ...this.db.settings, ...patch };
+    Db.put('settings', { key: 'platform', doc: JSON.stringify(next) }, 'key');
     Object.assign(this.db.settings, patch);
-    await this.save();
     return this.db.settings;
   }
 
   static async addAudit(actor: User, action: string, target: string, detail = ''): Promise<void> {
-    this.db.audit.unshift({ id: this.newId('a'), at: new Date().toISOString(), actorId: actor.id, actorEmail: actor.email, action, target, detail });
-    if (this.db.audit.length > 1000) this.db.audit.length = 1000;
-    await this.save();
+    const entry: AuditEntry = { id: this.newId('a'), at: new Date().toISOString(), actorId: actor.id, actorEmail: actor.email, action, target, detail };
+    const dropped = this.db.audit.slice(AUDIT_KEPT - 1);
+    Db.tx(() => {
+      Db.put('audit', { id: entry.id, at: entry.at, doc: JSON.stringify(entry) });
+      for (const a of dropped) Db.run('DELETE FROM audit WHERE id = ?', a.id);
+    });
+    this.db.audit.unshift(entry);
+    if (this.db.audit.length > AUDIT_KEPT) this.db.audit.length = AUDIT_KEPT;
   }
 
   static auditLog(limit: number): AuditEntry[] {
@@ -387,8 +468,14 @@ export class Store {
 
   static async addUser(user: User): Promise<User> {
     if (this.getUserByEmail(user.email)) throw new Error('EMAIL_TAKEN');
+    try {
+      this.writeUser(user);
+    } catch (err) {
+      // UNIQUE(email) in the database is the final guard against two sign-ups racing.
+      if (/UNIQUE/i.test((err as Error).message)) throw new Error('EMAIL_TAKEN');
+      throw err;
+    }
     this.db.users.push(user);
-    await this.save();
     return user;
   }
 
@@ -419,34 +506,43 @@ export class Store {
   }
 
   static async addProject(project: Project): Promise<Project> {
+    this.writeProject(project);
     this.db.projects.push(project);
-    await this.save();
     return project;
   }
 
   static async updateProject(id: string, patch: Partial<Project>): Promise<Project> {
     const project = this.getProject(id);
     if (!project) throw new Error(`Project ${id} not found`);
-    Object.assign(project, patch, { updatedAt: new Date().toISOString() });
-    await this.save();
+    const full = { ...patch, updatedAt: new Date().toISOString() };
+    this.writeProject({ ...project, ...full });
+    Object.assign(project, full);
     return project;
   }
 
   static async deleteProject(id: string): Promise<void> {
     for (const d of this.db.deployments.filter((x) => x.projectId === id)) await DeployLog.remove(d.id);
+    Db.tx(() => {
+      Db.run('DELETE FROM deployments WHERE project_id = ?', id);
+      Db.run('DELETE FROM events WHERE project_id = ?', id);
+      Db.run('DELETE FROM projects WHERE id = ?', id);
+    });
     this.db.deployments = this.db.deployments.filter((d) => d.projectId !== id);
     this.db.projects = this.db.projects.filter((p) => p.id !== id);
     this.db.events = this.db.events.filter((e) => e.projectId !== id);
-    await this.save();
   }
 
   // ── billing ────────────────────────────────────────────
   /** true the first time an event id is seen; later deliveries of the same event are ignored. */
   static async markWebhookEvent(id: string): Promise<boolean> {
     if (this.db.webhookEvents.includes(id)) return false;
+    const dropped = this.db.webhookEvents.slice(WEBHOOK_EVENTS_KEPT - 1);
+    Db.tx(() => {
+      Db.put('webhook_events', { id, at: new Date().toISOString() });
+      for (const old of dropped) Db.run('DELETE FROM webhook_events WHERE id = ?', old);
+    });
     this.db.webhookEvents.unshift(id);
-    this.db.webhookEvents.length = Math.min(this.db.webhookEvents.length, 2000);
-    await this.save();
+    this.db.webhookEvents.length = Math.min(this.db.webhookEvents.length, WEBHOOK_EVENTS_KEPT);
     return true;
   }
 
@@ -456,17 +552,14 @@ export class Store {
 
   // ── runtime events ─────────────────────────────────────
   static async addEvent(projectId: string, kind: ProjectEvent['kind'], message: string): Promise<void> {
-    this.db.events.unshift({ id: this.newId('e'), projectId, at: new Date().toISOString(), kind, message });
-    // 50 per project, 5000 overall.
-    const seen = new Map<string, number>();
-    this.db.events = this.db.events
-      .filter((e) => {
-        const n = (seen.get(e.projectId) ?? 0) + 1;
-        seen.set(e.projectId, n);
-        return n <= 50;
-      })
-      .slice(0, 5000);
-    await this.save();
+    const event: ProjectEvent = { id: this.newId('e'), projectId, at: new Date().toISOString(), kind, message };
+    const dropped = this.eventsOf(projectId, Number.MAX_SAFE_INTEGER).slice(EVENTS_PER_PROJECT - 1);
+    Db.tx(() => {
+      Db.put('events', { id: event.id, project_id: projectId, at: event.at, doc: JSON.stringify(event) });
+      for (const e of dropped) Db.run('DELETE FROM events WHERE id = ?', e.id);
+    });
+    const droppedIds = new Set(dropped.map((e) => e.id));
+    this.db.events = [event, ...this.db.events.filter((e) => !droppedIds.has(e.id))];
   }
 
   static eventsOf(projectId: string, limit = 50): ProjectEvent[] {
@@ -489,22 +582,22 @@ export class Store {
   }
 
   static async addDeployment(deployment: Deployment): Promise<Deployment> {
-    this.db.deployments.push(deployment);
-
-    const mine = this.deploymentsOf(deployment.projectId);
-    for (const old of mine.slice(config.limits.deploymentsKept)) {
-      await DeployLog.remove(old.id);
-      this.db.deployments = this.db.deployments.filter((d) => d.id !== old.id);
-    }
-    await this.save();
+    const older = this.deploymentsOf(deployment.projectId).slice(config.limits.deploymentsKept - 1);
+    Db.tx(() => {
+      this.writeDeployment(deployment);
+      for (const old of older) Db.run('DELETE FROM deployments WHERE id = ?', old.id);
+    });
+    const olderIds = new Set(older.map((d) => d.id));
+    this.db.deployments = [...this.db.deployments.filter((d) => !olderIds.has(d.id)), deployment];
+    for (const old of older) await DeployLog.remove(old.id);
     return deployment;
   }
 
   static async updateDeployment(id: string, patch: Partial<Deployment>): Promise<Deployment> {
     const deployment = this.getDeployment(id);
     if (!deployment) throw new Error(`Deployment ${id} not found`);
+    this.writeDeployment({ ...deployment, ...patch });
     Object.assign(deployment, patch);
-    await this.save();
     return deployment;
   }
 }
