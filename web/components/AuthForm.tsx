@@ -17,6 +17,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   const [busy, setBusy] = useState(false);
   const [captcha, setCaptcha] = useState('');
   const [captchaKey, setCaptchaKey] = useState(0);
+  const [accepted, setAccepted] = useState(false);
   const isLogin = mode === 'login';
 
   useEffect(() => {
@@ -80,11 +81,21 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
               )}
             </div>
 
+            {!isLogin && (
+              <label className="check" style={{ padding: '10px 12px' }}>
+                <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} required />
+                <span style={{ fontSize: 13.5 }}>
+                  I agree to the <Link href="/terms" target="_blank">Terms of Service</Link>, <Link href="/acceptable-use" target="_blank">Acceptable Use Policy</Link> and{' '}
+                  <Link href="/privacy" target="_blank">Privacy Policy</Link>.
+                </span>
+              </label>
+            )}
+
             {!isLogin && <Captcha key={captchaKey} onToken={setCaptcha} />}
 
             {error && <div className="error-box" role="alert">{error}</div>}
 
-            <button className="btn btn-primary btn-lg" disabled={busy || (!isLogin && captchaEnabled && !captcha)}>
+            <button className="btn btn-primary btn-lg" disabled={busy || (!isLogin && ((captchaEnabled && !captcha) || !accepted))}>
               {busy ? <span className="spinner" /> : isLogin ? 'Sign in' : 'Create account'}
             </button>
           </form>

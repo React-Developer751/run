@@ -7,6 +7,7 @@ import { exec } from '../utils/exec.js';
 import { AuthService } from '../services/auth.service.js';
 import { isPlanId } from '../config/plans.js';
 import { BillingService } from '../services/billing.service.js';
+import { AccountService } from '../services/account.service.js';
 import { DeployService } from '../services/deploy.service.js';
 import { DeployLog } from '../services/log.service.js';
 import { RunnerService } from '../services/runner.service.js';
@@ -234,13 +235,8 @@ export class AdminController {
     if (target.role === 'admin' && !Store.allUsers().some((u) => u.id !== target.id && u.role === 'admin' && !u.suspended)) {
       throw new HttpError(400, 'At least one active administrator must remain');
     }
-    const theirs = Store.projectsOf(target.id);
-    if (theirs.some((p) => p.status === 'deploying')) throw new HttpError(409, 'This user has a deployment in progress. Try again in a minute.');
-
-    for (const p of theirs) await DeployService.remove(p);
-    await Store.revokeUserSessions(target.id);
-    await Store.deleteUser(target.id);
-    await Store.addAudit(actor, 'user.delete', target.email, `removed ${theirs.length} project(s)`);
+    const removed = await AccountService.delete(target);
+    await Store.addAudit(actor, 'user.delete', target.email, `removed ${removed} project(s)`);
     return { ok: true };
   }
 

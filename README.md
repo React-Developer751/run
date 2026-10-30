@@ -77,7 +77,7 @@ Static sites (Vite/CRA): Docker mode mein nginx container; Process mode mein bui
 - Docker shares the host kernel. For untrusted public users add gVisor/Sysbox or run HostX on a throwaway VM.
 - `docker build` (npm install of user code) is not memory-capped; it has a 10-minute timeout. On a small VPS keep signups closed.
 - Auth cookies are `SameSite=Lax`, so the dashboard and the API must share one registrable domain (e.g. `app.example.com` + `api.example.com`). Users' apps live on sibling subdomains, which is why every state-changing request is also checked against the dashboard `Origin`.
-- No 2FA yet; admin sees every user's build logs.
+- No 2FA yet; admin sees every user's build logs. Legal pages are templates: have them reviewed by a lawyer.
 - JSON-file database: single process only.
 
 ## Login sessions (cookies)
@@ -185,6 +185,17 @@ Har 30 second engine har chalti app check karta hai:
 Har successful Docker deploy ki image rakhi jati hai (latest 3, `limits.rollbackImages`). Deployments tab mein purana version chuno → **Roll back to this version**: wahi image naye container mein start hoti hai (koi clone/build nahi, kuch second), health check ke baad traffic switch, purana version hata diya jata hai. Current env vars use hote hain. "Serving" tag batata hai abhi kaunsa deployment live hai.
 
 Rollback ke baad auto-deploy use turant undo nahi karta: polling "aakhri dekhe gaye commit" se compare karta hai, isliye agla deploy **naye push** par hi hoga. Process mode mein rollback nahi hai (wahan images nahi bantin).
+
+## Legal pages (launch + Razorpay activation)
+
+Public pages: `/terms`, `/privacy`, `/acceptable-use`, `/refund-policy`, `/shipping-policy`, `/contact` (footer + sitemap mein). Razorpay website review inhi 5 cheezon ko check karta hai: Terms, Privacy, Cancellation & Refund, Shipping/Delivery, Contact Us.
+
+Business details dashboard build ke time env se aate hain (`web/.env.local`). Jo set nahi hai wo page par `[placeholder]` dikhta hai, taaki galti se live na jaye:
+`NEXT_PUBLIC_LEGAL_COMPANY`, `NEXT_PUBLIC_LEGAL_ADDRESS`, `NEXT_PUBLIC_LEGAL_EMAIL`, `NEXT_PUBLIC_LEGAL_PHONE`, `NEXT_PUBLIC_LEGAL_ABUSE_EMAIL`, `NEXT_PUBLIC_LEGAL_GRIEVANCE_OFFICER`, `NEXT_PUBLIC_LEGAL_GRIEVANCE_EMAIL`, `NEXT_PUBLIC_LEGAL_JURISDICTION`, `NEXT_PUBLIC_LEGAL_UPDATED`.
+
+- Content India ke hisaab se: DPDP Act 2023, IT Act 2000, IT Rules 2021 (Grievance Officer), aur product ka asli behaviour (kaunsa data, kahan, kitne din). **Ye template hai, legal advice nahi. Launch se pehle kisi lawyer se review karwao.**
+- Sign-up par "I agree" checkbox zaroori; engine `termsAcceptedAt` + `termsVersion` (`HOSTX_TERMS_VERSION`) save karta hai.
+- **Account → Delete account** (password + "DELETE"): subscription turant cancel, phir saare apps, databases, domains, logs, sessions delete. Admin wala user-delete bhi yahi use karta hai (pehle paid user delete hone par Razorpay charge karta rehta tha).
 
 ## Custom domains (free SSL)
 

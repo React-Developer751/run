@@ -7,5 +7,10 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { url: `${SITE_URL}/`, changeFrequency: 'monthly', priority: 1 },
     { url: `${SITE_URL}/pricing`, changeFrequency: 'monthly', priority: 0.8 },
     { url: `${SITE_URL}/register`, changeFrequency: 'yearly', priority: 0.7 },
+    ...['/terms', '/privacy', '/acceptable-use', '/refund-policy', '/shipping-policy', '/contact'].map((path) => ({
+      url: `${SITE_URL}${path}`,
+      changeFrequency: 'yearly' as const,
+      priority: 0.3,
+    })),
   ];
 }

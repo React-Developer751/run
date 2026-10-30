@@ -77,6 +77,61 @@ function GitHubCard() {
   );
 }
 
+function DeleteAccountCard() {
+  const router = useRouter();
+  const { signOut } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmText, setConfirmText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await api.deleteAccount(password);
+      await signOut();
+      router.replace('/?deleted=1');
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="card stack danger-zone" style={{ marginTop: 20 }}>
+      <div>
+        <h2 style={{ fontSize: 18, color: 'var(--bad)' }}>Delete account</h2>
+        <p className="muted" style={{ marginTop: 6 }}>
+          Permanently deletes your account, every app, database (with all data), custom domain and log, and cancels any paid subscription
+          immediately. This cannot be undone.
+        </p>
+      </div>
+      {!open ? (
+        <div><button className="btn btn-danger" onClick={() => setOpen(true)}>Delete my account…</button></div>
+      ) : (
+        <form className="stack" onSubmit={submit}>
+          <div className="field">
+            <label className="label" htmlFor="del-pw">Your password</label>
+            <input id="del-pw" type="password" className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="del-confirm">Type <b>DELETE</b> to confirm</label>
+            <input id="del-confirm" className="input" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} autoComplete="off" required />
+          </div>
+          {error && <div className="error-box" role="alert">{error}</div>}
+          <div className="row">
+            <button className="btn btn-danger" disabled={busy || confirmText !== 'DELETE' || !password}>{busy ? <span className="spinner" /> : 'Permanently delete everything'}</button>
+            <button type="button" className="btn" onClick={() => setOpen(false)} disabled={busy}>Cancel</button>
+          </div>
+        </form>
+      )}
+    </div>
+  );
+}
+
 export default function AccountPage() {
   const user = useRequireAuth();
   const { signOut } = useAuth();
@@ -173,6 +228,8 @@ export default function AccountPage() {
               </button>
             </div>
           </div>
+
+          <DeleteAccountCard />
         </div>
       </main>
     </>

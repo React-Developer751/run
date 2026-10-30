@@ -5,6 +5,7 @@ import { validateEmail, validatePassword, validatePersonName } from '../utils/va
 import crypto from 'node:crypto';
 import { config } from '../config/index.js';
 import { AuthService } from '../services/auth.service.js';
+import { AccountService } from '../services/account.service.js';
 import { CaptchaService } from '../services/captcha.service.js';
 import { MailService } from '../services/mail.service.js';
 import { SessionService } from '../services/session.service.js';
@@ -69,6 +70,7 @@ export class AuthController {
     const name = validatePersonName(body.name);
     const email = validateEmail(body.email);
     const password = validatePassword(body.password);
+    if (body.acceptTerms !== true) throw new HttpError(400, 'Please accept the Terms of Service and Privacy Policy to create an account');
     if (!firstAccount) await CaptchaService.require(body.captcha, ctx.ip);
 
     if (Store.getUserByEmail(email)) throw new HttpError(409, 'An account with this email already exists');
@@ -88,6 +90,8 @@ export class AuthController {
       emailVerifiedAt: firstAccount ? new Date().toISOString() : null,
       github: null,
       plan: 'free',
+      termsAcceptedAt: new Date().toISOString(),
+      termsVersion: config.termsVersion,
       subscription: null,
       createdAt: new Date().toISOString(),
     }).catch((err: Error) => {
@@ -208,6 +212,21 @@ export class AuthController {
       emailVerifiedAt: user.emailVerifiedAt ?? now,
     });
     await SessionService.endAll(user.id);
+    return { ok: true };
+  }
+
+  /** Self-service account deletion (right to erasure). Needs the password, and the last admin cannot delete themself. */
+  static async deleteAccount(ctx: Ctx) {
+    const user = AuthService.requireUser(ctx.user);
+    limiter.hit(`delete:${ctx.ip}`);
+    const body = await ctx.json();
+    const password = typeof body.password === 'string' ? body.password : '';
+    if (!(await AuthService.verifyPassword(password, user.passwordHash))) throw new HttpError(403, 'Your password is not correct');
+    if (user.role === 'admin' && !Store.allUsers().some((u) => u.id !== user.id && u.role === 'admin' && !u.suspended)) {
+      throw new HttpError(400, 'You are the only administrator. Make someone else an admin first.');
+    }
+    await AccountService.delete(user);
+    SessionService.clearCookies(ctx.req, ctx.res);
     return { ok: true };
   }
 

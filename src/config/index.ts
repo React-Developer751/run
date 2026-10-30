@@ -134,6 +134,9 @@ export const config = {
   // DNS servers used to verify custom domains (public resolvers see changes faster than a local cache).
   dnsServers: (env.HOSTX_DNS_SERVERS ?? '1.1.1.1,8.8.8.8').split(',').map((s) => s.trim()).filter(Boolean),
 
+  // Bump when the Terms/Privacy change materially; recorded with each sign-up.
+  termsVersion: env.HOSTX_TERMS_VERSION ?? '2026-10-30',
+
   // Users' apps must not share a registrable domain with the dashboard/API (see checkDomains). Escape hatch for old setups.
   allowSharedDomain: env.HOSTX_ALLOW_SHARED_DOMAIN === 'true',
 

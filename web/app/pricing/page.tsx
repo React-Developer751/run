@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Nav } from '@/components/Nav';
 import { PlanCards } from '@/components/PlanCards';
+import { SiteFooter } from '@/components/SiteFooter';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { Plan } from '@/lib/types';
@@ -38,8 +39,9 @@ export default function PricingPage() {
             )}
           />
         )}
-        <p className="muted" style={{ textAlign: 'center', marginTop: 28, fontSize: 13.5 }}>Prices in INR, taxes as applicable. Payments are processed by Razorpay.</p>
+        <p className="muted" style={{ textAlign: 'center', marginTop: 28, fontSize: 13.5 }}>Prices in INR, taxes as applicable. Payments are processed by Razorpay. See our <Link href="/refund-policy">Cancellation &amp; Refund Policy</Link>.</p>
       </main>
+      <SiteFooter />
     </>
   );
 }

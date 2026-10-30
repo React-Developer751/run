@@ -110,6 +110,14 @@ export class BillingService {
     await this.saveSubscription(user, { ...sub, status: 'cancelling', updatedAt: new Date().toISOString() });
   }
 
+  /** Account deletion: stop charging right away (no further renewals), whatever state the subscription is in. */
+  static async cancelNow(user: User): Promise<void> {
+    const sub = user.subscription;
+    if (!sub || !this.enabled() || !['created', 'active', 'pending', 'cancelling'].includes(sub.status)) return;
+    await this.api(`/subscriptions/${sub.id}/cancel`, 'POST', { cancel_at_cycle_end: 0 });
+    await this.saveSubscription(user, null);
+  }
+
   private static async saveSubscription(user: User, sub: Subscription | null): Promise<void> {
     await Store.updateUser(user.id, { subscription: sub });
   }

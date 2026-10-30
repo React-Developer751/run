@@ -64,7 +64,8 @@ export const api = {
   health: () => request<Health>('/api/health'),
 
   register: (name: string, email: string, password: string, captcha?: string) =>
-    request<{ user: User }>('/api/auth/register', 'POST', { name, email, password, captcha }),
+    request<{ user: User }>('/api/auth/register', 'POST', { name, email, password, captcha, acceptTerms: true }),
+  deleteAccount: (password: string) => request<{ ok: true }>('/api/auth/delete-account', 'POST', { password }),
   verifyEmail: (token: string) => request<{ ok: true }>('/api/auth/verify-email', 'POST', { token }),
   resendVerification: () => request<{ ok: true; alreadyVerified?: boolean }>('/api/auth/resend-verification', 'POST', {}),
   forgotPassword: (email: string, captcha?: string) => request<{ ok: true }>('/api/auth/forgot-password', 'POST', { email, captcha }),

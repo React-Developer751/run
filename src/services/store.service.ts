@@ -30,6 +30,9 @@ export interface User {
   /** Linked GitHub account and the GitHub App installations it can use. */
   github: { login: string; installationIds: number[]; linkedAt: string } | null;
   plan: PlanId;
+  /** When the user accepted the Terms and Privacy Policy, and which version (null = before acceptance was recorded). */
+  termsAcceptedAt: string | null;
+  termsVersion: string | null;
   /** Razorpay subscription behind a paid plan (null for free / plans granted by an admin). */
   subscription: Subscription | null;
   createdAt: string;
@@ -205,6 +208,8 @@ export class Store {
           emailVerifiedAt: u.emailVerifiedAt === undefined ? u.createdAt : u.emailVerifiedAt,
           github: u.github ?? null,
           plan: u.plan ?? 'free',
+          termsAcceptedAt: u.termsAcceptedAt ?? null,
+          termsVersion: u.termsVersion ?? null,
           subscription: u.subscription ?? null,
         })),
         settings: { allowSignup: parsed.settings?.allowSignup ?? null, maxProjectsPerUser: parsed.settings?.maxProjectsPerUser ?? null },

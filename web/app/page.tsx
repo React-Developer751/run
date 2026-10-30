@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Icon, type IconName } from '@/components/Icon';
-import { Logo } from '@/components/Logo';
+import { SiteFooter } from '@/components/SiteFooter';
 import { Nav } from '@/components/Nav';
 
 const LANDING_TITLE = 'HostX — Deploy React & Node.js apps from a GitHub link';
@@ -135,12 +135,7 @@ export default function Landing() {
 
       </main>
 
-      <footer className="footer">
-        <div className="container footer-inner">
-          <Logo />
-          <span>© {new Date().getFullYear()} HostX · Built with Node.js, TypeScript &amp; Next.js</span>
-        </div>
-      </footer>
+      <SiteFooter />
     </>
   );
 }
