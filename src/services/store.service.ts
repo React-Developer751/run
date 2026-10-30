@@ -7,7 +7,7 @@ import { Db } from './db.service.js';
 import { DeployLog } from './log.service.js';
 import { Vault } from './vault.service.js';
 
-export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'sleeping';
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
 export type ProjectKind = 'static' | 'node';
 export type RuntimeKind = 'docker' | 'process' | 'static';
@@ -177,6 +177,22 @@ interface Database {
   events: ProjectEvent[];
   /** Ids of processed payment webhooks (Razorpay retries deliveries). */
   webhookEvents: string[];
+  adminNotifications: AdminNotification[];
+}
+
+/** Something an administrator should look at (shown in Admin → Notifications, also emailed). */
+export interface AdminNotification {
+  id: string;
+  at: string;
+  kind: 'deploy-failed' | 'database-near-limit' | 'disk-near-full';
+  severity: 'warning' | 'critical';
+  title: string;
+  message: string;
+  projectId: string | null;
+  userId: string | null;
+  /** Same key = same situation; used to avoid repeating an alert (e.g. "db:<project>:critical"). */
+  dedupeKey: string | null;
+  readAt: string | null;
 }
 
 /** Runtime incident shown on the project page (crash, automatic restart, recovery, rollback). */
@@ -206,6 +222,8 @@ const normalizeUser = (u: User): User => ({
 /** Fills fields added after a record was written; secrets are decrypted (they are encrypted at rest). */
 const loadProject = (p: Project): Project => ({
   ...p,
+  // Sleeping mode was removed: such apps count as live again, and DeployService.recover() starts them on boot.
+  status: (p.status as string) === 'sleeping' ? 'live' : p.status,
   kindPref: p.kindPref ?? null,
   buildCommand: p.buildCommand ?? null,
   startCommand: p.startCommand ?? null,
@@ -233,6 +251,7 @@ const normalizeDeployment = (d: Deployment): Deployment => ({ ...d, image: d.ima
 const docs = <T>(table: string, order = ''): T[] => Db.all<{ doc: string }>(`SELECT doc FROM ${table}${order}`).map((r) => JSON.parse(r.doc) as T);
 
 const EVENTS_PER_PROJECT = 50;
+const ADMIN_NOTIFICATIONS_KEPT = 500;
 const AUDIT_KEPT = 1000;
 const WEBHOOK_EVENTS_KEPT = 2000;
 
@@ -241,7 +260,7 @@ const WEBHOOK_EVENTS_KEPT = 2000;
  * durable before the call resolves. Records are also kept in memory, so reads stay synchronous and cheap.
  */
 export class Store {
-  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [], events: [], webhookEvents: [] };
+  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [], events: [], webhookEvents: [], adminNotifications: [] };
 
   static async init(): Promise<void> {
     await fs.mkdir(config.dataDir, { recursive: true, mode: 0o700 });
@@ -259,6 +278,7 @@ export class Store {
       events: docs<ProjectEvent>('events', ' ORDER BY at DESC'),
       audit: docs<AuditEntry>('audit', ' ORDER BY at DESC'),
       webhookEvents: Db.all<{ id: string }>('SELECT id FROM webhook_events ORDER BY at DESC').map((r) => r.id),
+      adminNotifications: docs<AdminNotification>('admin_notifications', ' ORDER BY at DESC'),
       settings: settings ? (JSON.parse(settings.doc) as Settings) : { allowSignup: null, maxProjectsPerUser: null },
     };
 
@@ -533,6 +553,10 @@ export class Store {
   }
 
   // ── billing ────────────────────────────────────────────
+  static hasWebhookEvent(id: string): boolean {
+    return this.db.webhookEvents.includes(id);
+  }
+
   /** true the first time an event id is seen; later deliveries of the same event are ignored. */
   static async markWebhookEvent(id: string): Promise<boolean> {
     if (this.db.webhookEvents.includes(id)) return false;
@@ -548,6 +572,37 @@ export class Store {
 
   static userBySubscription(subscriptionId: string): User | undefined {
     return this.db.users.find((u) => u.subscription?.id === subscriptionId);
+  }
+
+  // ── admin notifications ────────────────────────────────
+  static async addAdminNotification(n: AdminNotification): Promise<void> {
+    const dropped = this.db.adminNotifications.slice(ADMIN_NOTIFICATIONS_KEPT - 1);
+    Db.tx(() => {
+      Db.put('admin_notifications', { id: n.id, at: n.at, dedupe_key: n.dedupeKey, doc: JSON.stringify(n) });
+      for (const old of dropped) Db.run('DELETE FROM admin_notifications WHERE id = ?', old.id);
+    });
+    const droppedIds = new Set(dropped.map((x) => x.id));
+    this.db.adminNotifications = [n, ...this.db.adminNotifications.filter((x) => !droppedIds.has(x.id))];
+  }
+
+  static adminNotifications(limit = 200): AdminNotification[] {
+    return this.db.adminNotifications.slice(0, limit);
+  }
+
+  /** Newest notification with this dedupe key (to decide whether an alert is a repeat). */
+  static lastAdminNotification(dedupeKey: string): AdminNotification | undefined {
+    return this.db.adminNotifications.find((n) => n.dedupeKey === dedupeKey);
+  }
+
+  /** Marks the given notifications (or all when `ids` is null) as read. */
+  static async markAdminNotificationsRead(ids: string[] | null): Promise<number> {
+    const at = new Date().toISOString();
+    const targets = this.db.adminNotifications.filter((n) => !n.readAt && (ids === null || ids.includes(n.id)));
+    Db.tx(() => {
+      for (const n of targets) Db.put('admin_notifications', { id: n.id, at: n.at, dedupe_key: n.dedupeKey, doc: JSON.stringify({ ...n, readAt: at }) });
+    });
+    for (const n of targets) n.readAt = at;
+    return targets.length;
   }
 
   // ── runtime events ─────────────────────────────────────
@@ -604,18 +659,17 @@ export class Store {
 
 /**
  * What a user may use. With billing off, the old behaviour stays: per-user override, admin setting or
- * HOSTX_MAX_PROJECTS, and the global HOSTX_APP_MEMORY / HOSTX_APP_CPUS without sleeping.
+ * HOSTX_MAX_PROJECTS, and the global HOSTX_APP_MEMORY / HOSTX_APP_CPUS.
  */
 export function limitsFor(user: User | undefined): PlanLimits {
   const legacyProjects = Store.settings().maxProjectsPerUser ?? config.limits.maxProjectsPerUser;
   const base: PlanLimits = billingEnabled() && user
     ? PLANS[user.plan]
-    : { projects: legacyProjects, databases: 1000, customDomains: 1000, memory: config.limits.memory, cpus: config.limits.cpus, sleepAfterMinutes: null };
+    : { projects: legacyProjects, databases: 1000, customDomains: 1000, databaseMb: Number(process.env.HOSTX_DATABASE_MB ?? 5120), memory: config.limits.memory, cpus: config.limits.cpus };
   // Admins are never limited by plans; an admin-set project limit always wins.
   const admin = user?.role === 'admin';
   return {
     ...base,
     projects: user?.maxProjects ?? (admin ? Math.max(base.projects, 100) : base.projects),
-    sleepAfterMinutes: admin ? null : base.sleepAfterMinutes,
   };
 }

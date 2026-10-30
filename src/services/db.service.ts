@@ -22,6 +22,8 @@ const MIGRATIONS: string[] = [
    CREATE INDEX audit_at ON audit(at);
    CREATE TABLE webhook_events (id TEXT PRIMARY KEY, at TEXT NOT NULL);
    CREATE TABLE settings (key TEXT PRIMARY KEY, doc TEXT NOT NULL);`,
+  `CREATE TABLE admin_notifications (id TEXT PRIMARY KEY, at TEXT NOT NULL, dedupe_key TEXT, doc TEXT NOT NULL);
+   CREATE INDEX admin_notifications_at ON admin_notifications(at);`,
 ];
 
 /** Thin synchronous wrapper around node:sqlite (built into Node 22+, no native module to compile). */

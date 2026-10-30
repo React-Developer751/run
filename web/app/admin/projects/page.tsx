@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { LogModal } from '@/components/LogModal';
 import { StatusBadge } from '@/components/StatusBadge';
@@ -15,6 +15,11 @@ export default function AdminProjects() {
   const { data, error, reload } = usePoll(() => api.admin.projects(), 6000);
   const { toast, flash } = useToast();
   const [q, setQ] = useState('');
+  // Links from Admin → Notifications open this page pre-filtered (?q=<project name>).
+  useEffect(() => {
+    const preset = new URLSearchParams(window.location.search).get('q');
+    if (preset) setQ(preset);
+  }, []);
   const [status, setStatus] = useState<ProjectStatus | 'all'>('all');
   const [busy, setBusy] = useState('');
   const [logs, setLogs] = useState<AdminProject | null>(null);

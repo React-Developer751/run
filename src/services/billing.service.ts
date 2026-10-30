@@ -69,6 +69,11 @@ export class BillingService {
     if (!planId) throw new HttpError(400, 'That plan is not available');
 
     const sub = user.subscription;
+    if (sub?.status === 'cancelling') {
+      // The paid period is still running on the old subscription; a second one would be billed in parallel.
+      const until = sub.currentPeriodEnd ? ` until ${new Date(sub.currentPeriodEnd).toDateString()}` : '';
+      throw new HttpError(409, `Your current plan stays active${until}. You can choose a new plan once it ends.`);
+    }
     if (sub && ['active', 'pending'].includes(sub.status)) {
       if (sub.plan === plan) throw new HttpError(409, `You are already on ${PLANS[plan].name}`);
       // Switch an active subscription in place; Razorpay prorates and the webhook applies the new plan.
@@ -78,6 +83,11 @@ export class BillingService {
     }
     // An unpaid checkout for the same plan is reused instead of creating a new one on every click.
     if (sub && sub.status === 'created' && sub.plan === plan && sub.shortUrl) return { url: sub.shortUrl, changed: false };
+    // A different, still unpaid checkout: cancel it on Razorpay first so its emailed payment link cannot be paid later.
+    if (sub && sub.status === 'created') {
+      await this.api(`/subscriptions/${sub.id}/cancel`, 'POST', { cancel_at_cycle_end: 0 });
+      await this.saveSubscription(user, null);
+    }
 
     const created = await this.api<RazorpaySubscription>('/subscriptions', 'POST', {
       plan_id: planId,
@@ -130,15 +140,24 @@ export class BillingService {
   }
 
   /** Applies one verified webhook. Unknown events and subscriptions are ignored. */
-  static async handleEvent(event: string, payload: Record<string, unknown>): Promise<string> {
+  static async handleEvent(eventName: string, payload: Record<string, unknown>): Promise<string> {
+    let event = eventName;
     const entity = ((payload.payload as Record<string, { entity?: RazorpaySubscription }> | undefined)?.subscription?.entity ?? null) as RazorpaySubscription | null;
     if (!entity || !event.startsWith('subscription.')) return 'ignored';
     const user = Store.userBySubscription(entity.id) ?? (entity.notes?.hostx_user_id ? Store.getUserById(entity.notes.hostx_user_id) : undefined);
     if (!user) return 'unknown subscription';
     // A user who already started a newer subscription is not affected by events of an older one.
     if (user.subscription && user.subscription.id !== entity.id) return 'stale subscription';
-    // No subscription on file (never paid, or an admin granted the plan): only a first payment may attach one.
-    if (!user.subscription && event !== 'subscription.activated' && event !== 'subscription.charged') return 'no subscription on file';
+    // Decide by the subscription's own state, not by the event name: deliveries can arrive late and out of order.
+    const ended = ['cancelled', 'completed', 'halted', 'expired', 'paused'].includes(entity.status);
+    const paying = entity.status === 'active' || entity.status === 'authenticated';
+    // No subscription on file (never paid, or an admin granted the plan): only a live, paying one may attach.
+    if (!user.subscription && !(paying && (event === 'subscription.activated' || event === 'subscription.charged'))) return 'no subscription on file';
+    if (ended && !['subscription.halted', 'subscription.cancelled', 'subscription.completed', 'subscription.paused'].includes(event)) {
+      // e.g. a delayed "charged" for a subscription that has since been cancelled: treat it as the end it really is.
+      event = 'subscription.cancelled';
+    }
+    if (!ended && !paying && event !== 'subscription.pending') return `ignored (status ${entity.status})`;
 
     const plan = this.planFromRazorpay(entity.plan_id) ?? user.subscription?.plan ?? 'free';
     const periodEnd = entity.current_end ? new Date(entity.current_end * 1000).toISOString() : (user.subscription?.currentPeriodEnd ?? null);

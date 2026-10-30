@@ -205,6 +205,12 @@ export class MailService {
     return this.send({ to, subject: `[HostX] ${title}`, ...body });
   }
 
+  /** Platform alert for administrators (failed deploys, storage running out). */
+  static adminAlert(to: string, title: string, message: string, url: string): Promise<boolean> {
+    const body = layout(title, message, { label: 'Open admin notifications', url }, 'You receive this because you are a HostX administrator.');
+    return this.send({ to, subject: `[HostX admin] ${title}`, ...body });
+  }
+
   static resetPassword(to: string, name: string, url: string): Promise<boolean> {
     const body = layout(
       'Reset your password',

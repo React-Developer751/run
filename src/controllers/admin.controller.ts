@@ -9,6 +9,7 @@ import { isPlanId } from '../config/plans.js';
 import { BillingService } from '../services/billing.service.js';
 import { AccountService } from '../services/account.service.js';
 import { DeployService } from '../services/deploy.service.js';
+import { StorageMonitorService } from '../services/storage-monitor.service.js';
 import { DeployLog } from '../services/log.service.js';
 import { RunnerService } from '../services/runner.service.js';
 import { Store, type Project, type User } from '../services/store.service.js';
@@ -341,6 +342,36 @@ export class AdminController {
     await Store.updateSettings(patch);
     await Store.addAudit(actor, 'settings.update', 'platform', JSON.stringify(patch));
     return { settings: effectiveSettings() };
+  }
+
+  // ── notifications & storage ─────────────────────────────
+  static notifications(ctx: Ctx) {
+    admin(ctx);
+    const limit = Math.min(500, Math.max(1, Number.parseInt(ctx.query.get('limit') ?? '200', 10) || 200));
+    const all = Store.adminNotifications(500);
+    const names = (id: string | null) => (id ? (Store.getProject(id)?.name ?? null) : null);
+    return {
+      unread: all.filter((n) => !n.readAt).length,
+      notifications: all.slice(0, limit).map((n) => ({ ...n, projectName: names(n.projectId) })),
+    };
+  }
+
+  /** Marks notifications read: `ids` given -> those, otherwise all. */
+  static async readNotifications(ctx: Ctx) {
+    admin(ctx);
+    const body = await ctx.json();
+    const ids = Array.isArray(body.ids) ? body.ids.filter((x): x is string => typeof x === 'string').slice(0, 500) : null;
+    return { marked: await Store.markAdminNotificationsRead(ids) };
+  }
+
+  static storage(ctx: Ctx) {
+    admin(ctx);
+    return StorageMonitorService.lastReport();
+  }
+
+  static async checkStorage(ctx: Ctx) {
+    admin(ctx);
+    return StorageMonitorService.check();
   }
 
   static audit(ctx: Ctx) {

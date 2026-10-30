@@ -12,7 +12,9 @@ import { useRequireAuth } from '@/lib/auth';
 import { slugPreview } from '@/lib/format';
 import type { BuildConfig, GitHubRepo, ScanFolder } from '@/lib/types';
 
-const normalizeRepo = (url: string) => url.trim().toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '');
+// "github.com/u/repo", "https://www.github.com/u/repo.git/" and the API's URL all compare equal.
+const normalizeRepo = (url: string) =>
+  url.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/+$/, '').replace(/\.git$/, '');
 
 export default function NewDeploy() {
   const user = useRequireAuth();
@@ -35,9 +37,12 @@ export default function NewDeploy() {
   const [githubOn, setGithubOn] = useState(false);
   const [repos, setRepos] = useState<GitHubRepo[] | null>(null);
   const [repoFilter, setRepoFilter] = useState('');
+  const [repoError, setRepoError] = useState('');
 
   useEffect(() => {
-    if (user?.github) api.github.repos().then((r) => setRepos(r.repos)).catch(() => setRepos([]));
+    if (user?.github) {
+      api.github.repos().then((r) => { setRepos(r.repos); setRepoError(''); }).catch((e: Error) => { setRepos([]); setRepoError(e.message); });
+    }
   }, [user?.github]);
 
   // A repository from the connected GitHub account is cloned through the GitHub App (works for private repos too).
@@ -115,7 +120,7 @@ export default function NewDeploy() {
             {repos && repos.length > 0 && (
               <div className="field">
                 <span className="label">Your GitHub repositories <span className="dim">(@{user.github?.login})</span></span>
-                <input className="input input-sm" placeholder="Filter repositories…" value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)} spellCheck={false} />
+                <input className="input input-sm" aria-label="Filter repositories" placeholder="Filter repositories…" value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)} spellCheck={false} />
                 <div className="deploy-list" style={{ maxHeight: 220, overflowY: 'auto' }}>
                   {repos
                     .filter((r) => r.fullName.toLowerCase().includes(repoFilter.trim().toLowerCase()))
@@ -134,6 +139,8 @@ export default function NewDeploy() {
                 </div>
               </div>
             )}
+
+            {repoError && <div className="notice-box">Could not load your GitHub repositories ({repoError}). You can still paste a repository URL below.</div>}
 
             <form className="stack" onSubmit={scan}>
               <div className="field">

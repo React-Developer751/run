@@ -6,13 +6,15 @@ import crypto from 'node:crypto';
 import { config } from '../config/index.js';
 import { AuthService } from '../services/auth.service.js';
 import { AccountService } from '../services/account.service.js';
-import { CaptchaService } from '../services/captcha.service.js';
 import { MailService } from '../services/mail.service.js';
 import { SessionService } from '../services/session.service.js';
 import { Store, type User } from '../services/store.service.js';
 
 const limiter = new RateLimiter(20, 15 * 60 * 1000);
-const emailLimiter = new RateLimiter(10, 15 * 60 * 1000);
+// Only FAILED logins count, so nobody can lock a user out by spamming wrong passwords for their email from elsewhere:
+// 10 failures per email+IP, and a generous 50 per email overall against distributed guessing.
+const emailIpFailures = new RateLimiter(10, 15 * 60 * 1000);
+const emailFailures = new RateLimiter(50, 15 * 60 * 1000);
 // Outgoing emails cost money and can be used to spam someone's inbox: keep them rare.
 const mailLimiter = new RateLimiter(3, 60 * 60 * 1000, 'Too many emails requested. Please wait an hour and try again.');
 const forgotLimiter = new RateLimiter(10, 15 * 60 * 1000);
@@ -40,6 +42,13 @@ async function issueToken(user: User, kind: 'verify-email' | 'reset-password', t
 async function sendVerification(user: User): Promise<void> {
   const token = await issueToken(user, 'verify-email', VERIFY_TTL_MS);
   await MailService.verifyEmail(user.email, user.name, `${config.dashboardUrl}/verify-email?token=${token}`);
+}
+
+/** HOSTX_ADMIN_EMAIL gets the admin role, but only after an emailed link proved the address belongs to them. */
+async function promoteConfiguredAdmin(user: User): Promise<void> {
+  if (config.adminEmail && user.email === config.adminEmail && user.role !== 'admin') {
+    await Store.updateUser(user.id, { role: 'admin' });
+  }
 }
 
 function tokenFrom(value: unknown): string {
@@ -71,7 +80,6 @@ export class AuthController {
     const email = validateEmail(body.email);
     const password = validatePassword(body.password);
     if (body.acceptTerms !== true) throw new HttpError(400, 'Please accept the Terms of Service and Privacy Policy to create an account');
-    if (!firstAccount) await CaptchaService.require(body.captcha, ctx.ip);
 
     if (Store.getUserByEmail(email)) throw new HttpError(409, 'An account with this email already exists');
 
@@ -81,7 +89,8 @@ export class AuthController {
       name,
       email,
       passwordHash,
-      role: firstAccount || email === config.adminEmail ? 'admin' : 'user',
+      // HOSTX_ADMIN_EMAIL becomes admin only once that address is confirmed (verifyEmail), never just by signing up with it.
+      role: firstAccount ? 'admin' : 'user',
       suspended: false,
       maxProjects: null,
       lastLoginAt: new Date().toISOString(),
@@ -110,10 +119,15 @@ export class AuthController {
     const email = validateEmail(body.email);
     const password = typeof body.password === 'string' ? body.password : '';
 
-    emailLimiter.hit(`login:${email}`);
+    emailIpFailures.check(`${email}|${ctx.ip}`);
+    emailFailures.check(email);
     const user = Store.getUserByEmail(email);
     const valid = await AuthService.verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
-    if (!user || !valid) throw new HttpError(401, 'Invalid email or password');
+    if (!user || !valid) {
+      emailIpFailures.hit(`${email}|${ctx.ip}`);
+      emailFailures.hit(email);
+      throw new HttpError(401, 'Invalid email or password');
+    }
     if (user.suspended) throw new HttpError(403, 'This account has been suspended. Contact your administrator.');
     await Store.updateUser(user.id, { lastLoginAt: new Date().toISOString() });
 
@@ -165,6 +179,7 @@ export class AuthController {
     if (!row || !user) throw new HttpError(400, 'This link is invalid or has expired. Sign in and request a new one.');
     await Store.useToken(row.id);
     if (!user.emailVerifiedAt) await Store.updateUser(user.id, { emailVerifiedAt: new Date().toISOString() });
+    await promoteConfiguredAdmin(user);
     return { ok: true };
   }
 
@@ -181,7 +196,6 @@ export class AuthController {
     forgotLimiter.hit(`forgot:${ctx.ip}`);
     const body = await ctx.json();
     const email = validateEmail(body.email);
-    await CaptchaService.require(body.captcha, ctx.ip);
     const user = Store.getUserByEmail(email);
     if (user && !user.suspended) {
       try {
@@ -212,6 +226,7 @@ export class AuthController {
       emailVerifiedAt: user.emailVerifiedAt ?? now,
     });
     await SessionService.endAll(user.id);
+    await promoteConfiguredAdmin(user);
     return { ok: true };
   }
 

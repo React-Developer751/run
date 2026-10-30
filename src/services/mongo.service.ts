@@ -5,7 +5,7 @@ import { config } from '../config/index.js';
 import { exec, run } from '../utils/exec.js';
 import { HttpError } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
-import { networkName } from './docker.service.js';
+import { ensureNetwork, networkName } from './docker.service.js';
 import { RunnerService } from './runner.service.js';
 import { billingEnabled } from '../config/plans.js';
 import { Store, limitsFor, type Project, type ProjectDatabase } from './store.service.js';
@@ -116,6 +116,14 @@ export class MongoService {
     return stdout;
   }
 
+  /** Size on disk (data + indexes, compressed) of every database, in bytes. */
+  static async sizes(): Promise<Map<string, number>> {
+    if (!this.available()) return new Map();
+    const out = await this.shell('JSON.stringify(db.adminCommand({ listDatabases: 1 }).databases.map((d) => [d.name, d.sizeOnDisk]))');
+    const json = out.trim().split('\n').pop() ?? '[]';
+    return new Map(JSON.parse(json) as Array<[string, number]>);
+  }
+
   static uri(db: ProjectDatabase): string {
     const auth = `${encodeURIComponent(db.user)}:${encodeURIComponent(db.password)}`;
     if (this.mode === 'docker' || !this.adminUrl) return `mongodb://${auth}@${CONTAINER}:27017/${db.name}?authSource=${db.name}`;
@@ -163,7 +171,7 @@ export class MongoService {
   /** Lets the project's containers reach Mongo (idempotent). */
   static async attach(project: Project): Promise<void> {
     if (this.mode !== 'docker' || !project.database) return;
-    await exec('docker', ['network', 'create', '--driver', 'bridge', networkName(project)]);
+    await ensureNetwork(networkName(project));
     const { code, stdout } = await exec('docker', ['inspect', '-f', `{{json .NetworkSettings.Networks}}`, CONTAINER]);
     if (code === 0 && stdout.includes(`"${networkName(project)}"`)) return;
     await run('docker', ['network', 'connect', networkName(project), CONTAINER], { label: 'docker network connect' });

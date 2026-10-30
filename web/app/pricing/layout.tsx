@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { pageMetadata } from '@/lib/site';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Pricing',
-  description: 'Simple monthly plans for hosting MERN apps: free tier, always-on services, MongoDB databases and GitHub auto-deploys.',
-  alternates: { canonical: '/pricing' },
-};
+  description: 'Simple monthly plans for hosting MERN apps: a free plan, always-on apps, MongoDB databases, custom domains and GitHub auto-deploys. From ₹299/month.',
+  path: '/pricing',
+});
 
 export default function Layout({ children }: { children: ReactNode }) {
   return children;

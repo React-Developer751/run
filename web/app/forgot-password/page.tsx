@@ -2,14 +2,11 @@
 
 import Link from 'next/link';
 import { useState, type FormEvent } from 'react';
-import { Captcha, captchaEnabled } from '@/components/Captcha';
 import { Nav } from '@/components/Nav';
 import { api } from '@/lib/api';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
-  const [captcha, setCaptcha] = useState('');
-  const [captchaKey, setCaptchaKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState('');
@@ -19,12 +16,10 @@ export default function ForgotPasswordPage() {
     setError('');
     setBusy(true);
     try {
-      await api.forgotPassword(email.trim(), captcha || undefined);
+      await api.forgotPassword(email.trim());
       setSent(true);
     } catch (err) {
       setError((err as Error).message);
-      setCaptcha('');
-      setCaptchaKey((k) => k + 1);
     } finally {
       setBusy(false);
     }
@@ -48,9 +43,8 @@ export default function ForgotPasswordPage() {
                   <label className="label" htmlFor="email">Email</label>
                   <input id="email" type="email" className="input" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required autoFocus />
                 </div>
-                <Captcha key={captchaKey} onToken={setCaptcha} />
                 {error && <div className="error-box" role="alert">{error}</div>}
-                <button className="btn btn-primary btn-lg" disabled={busy || (captchaEnabled && !captcha)}>
+                <button className="btn btn-primary btn-lg" disabled={busy}>
                   {busy ? <span className="spinner" /> : 'Send reset link'}
                 </button>
               </form>

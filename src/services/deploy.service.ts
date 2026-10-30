@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { isReservedSlug, slugify } from '../utils/validator.js';
 import { ClonerService } from './cloner.service.js';
 import { DetectService, type Detection } from './detect.service.js';
+import { AdminAlertService } from './admin-alert.service.js';
 import { AlertService } from './alert.service.js';
 import { GitHubService } from './github.service.js';
 import { DeployLog, redactPaths } from './log.service.js';
@@ -108,7 +109,16 @@ export class DeployService {
 
   // ── public API ─────────────────────────────────────────
   static async createProject(input: CreateProjectInput): Promise<{ project: Project; deployment: Deployment }> {
-    const port = await PortService.allocate(Store.usedPorts());
+    // Reserved until the project row holds it, so two creates at once never get the same port.
+    const port = await PortService.reserve(Store.usedPorts());
+    try {
+      return await this.createWithPort(input, port);
+    } finally {
+      PortService.release(port);
+    }
+  }
+
+  private static async createWithPort(input: CreateProjectInput, port: number): Promise<{ project: Project; deployment: Deployment }> {
 
     // Everything from here to addProject() is synchronous, so concurrent requests cannot race on limit/slug.
     const limit = limitsFor(Store.getUserById(input.userId)).projects;
@@ -162,6 +172,9 @@ export class DeployService {
       try {
         await MongoService.create(project);
       } catch (err) {
+        // The database user may exist even if attaching failed: never leave it behind.
+        const created = Store.getProject(project.id);
+        if (created?.database) await MongoService.drop(created).catch(() => undefined);
         await Store.deleteProject(project.id);
         throw err;
       }
@@ -267,6 +280,19 @@ export class DeployService {
     if (!project) return;
     const stillServing = project.runtime !== null && (await RunnerService.for(project).isAlive(project).catch(() => false));
     await Store.updateProject(projectId, { status: stillServing ? 'live' : 'failed' }).catch(() => undefined);
+
+    // Every failure reaches the admins (in-app); emails are limited to one per project per hour.
+    const owner = Store.getUserById(project.userId);
+    const how = { create: 'first deploy', redeploy: 'manual redeploy', auto: 'auto-deploy', rollback: 'rollback' }[deployment?.trigger ?? 'redeploy'];
+    await AdminAlertService.notify({
+      kind: 'deploy-failed',
+      severity: stillServing ? 'warning' : 'critical',
+      title: `Deploy failed: ${project.name}`,
+      message: `${owner?.email ?? 'unknown user'} · ${how} · ${message.split('\n')[0]?.slice(0, 300) ?? ''} ${stillServing ? '(previous version still live)' : '(app is offline)'}`,
+      projectId: project.id,
+      userId: project.userId,
+      emailKey: `deploy-failed:${project.id}`,
+    }).catch((e) => logger.warn('Admin alert failed', e));
     // Nobody is watching an automatic deploy: tell the owner.
     if (deployment?.trigger === 'auto') {
       AlertService.notify(
@@ -305,7 +331,11 @@ export class DeployService {
   }
 
   /** On boot: close dangling deployments and bring back apps that were live before the restart. */
-  static async recover(): Promise<void> {
+  /**
+   * Before the API and proxy start listening: settle what a restart interrupted. Kept fast (no app starts) so a
+   * redeploy started right after boot is never overwritten by recovery.
+   */
+  static async recoverStatuses(): Promise<void> {
     for (const d of Store.allDeployments()) {
       if (['queued', 'cloning', 'building', 'starting'].includes(d.status)) {
         await Store.updateDeployment(d.id, {
@@ -316,10 +346,19 @@ export class DeployService {
       }
     }
     for (const project of Store.allProjects()) {
+      if (project.status !== 'deploying') continue;
+      // Blue-green: the previous version may still be serving. Only an app that is really down counts as failed.
+      const alive = project.runtime !== null && (await RunnerService.for(project).isAlive(project).catch(() => false));
+      await Store.updateProject(project.id, { status: alive ? 'live' : 'failed' });
+    }
+    await RunnerService.current().cleanupOrphans?.().catch((err) => logger.warn('Orphan cleanup failed', err));
+  }
+
+  /** After the servers are up: bring back apps that were live before the restart. */
+  static async recover(): Promise<void> {
+    for (const project of Store.allProjects()) {
       try {
-        if (project.status === 'deploying') {
-          await Store.updateProject(project.id, { status: 'failed' });
-        } else if (project.status === 'live' && !(await RunnerService.for(project).isAlive(project))) {
+        if (project.status === 'live' && !(await RunnerService.for(project).isAlive(project))) {
           logger.info(`Restoring ${project.slug}...`);
           await this.start(project);
         }

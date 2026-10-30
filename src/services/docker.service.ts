@@ -20,7 +20,7 @@ const imageName = (p: Project, version: string) => `hostx-${p.id}:${version}`;
 
 // SPA-friendly static server: unknown paths fall back to index.html, hashed assets are cached.
 const NGINX_CONFIG = `server {
-  listen 80;
+  listen 8080;
   root /usr/share/nginx/html;
   index index.html;
   gzip on;
@@ -39,10 +39,12 @@ const nodeImage = (d: Detection) => `node:${/^\d+$/.test(d.nodeVersion) ? d.node
  */
 function dockerfileFor(detection: Detection, outputDir: string): string {
   if (detection.kind === 'static') {
-    return `FROM nginx:alpine
+    // nginx-unprivileged runs as a normal user on 8080, so it works with --cap-drop=ALL / no-new-privileges
+    // (the stock nginx image needs root capabilities to chown its cache and switch users).
+    return `FROM nginxinc/nginx-unprivileged:alpine
 COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf
 COPY ${JSON.stringify([outputDir === '.' ? './' : `${outputDir}/`, '/usr/share/nginx/html/'])}
-EXPOSE 80
+EXPOSE 8080
 `;
   }
   return `FROM ${nodeImage(detection)}
@@ -53,6 +55,20 @@ ENV NODE_ENV=production PORT=3000
 EXPOSE 3000
 CMD ${JSON.stringify(['sh', '-c', detection.startCommand])}
 `;
+}
+
+/**
+ * Creates a project's private network (idempotent). Fails loudly when Docker has run out of address space, which
+ * happens after ~30 networks with Docker's default pools: set "default-address-pools" (see README).
+ */
+export async function ensureNetwork(name: string): Promise<void> {
+  const { code } = await exec('docker', ['network', 'inspect', name]);
+  if (code === 0) return;
+  let message = '';
+  const created = await exec('docker', ['network', 'create', '--driver', 'bridge', name], { onLine: (l) => (message += `${l} `) });
+  if (created.code !== 0) {
+    throw new Error(`Could not create the app network (${message.trim() || `exit ${created.code}`}). Server admin: Docker may be out of network address pools.`);
+  }
 }
 
 /** Size of a folder in MB (du is fast and does not follow symlinks). */
@@ -138,6 +154,16 @@ export class DockerRunner implements Runner {
     await fs.writeFile(envFile, Object.entries(buildEnv).map(([k, v]) => `${k}=${v}`).join('\n'), { mode: 0o600 });
     // The engine's own user, so files written in the mounted folder stay ours (root has no extra rights here anyway).
     const user = process.getuid && process.getgid ? `${process.getuid()}:${process.getgid()}` : '1000:1000';
+    // The sandbox caps memory/CPU but not disk: watch the folder while it builds and stop a runaway build early.
+    let tooBig = 0;
+    const watcher = setInterval(() => {
+      void folderMb(srcDir).then(async (mbUsed) => {
+        if (mbUsed > config.limits.buildMaxDiskMb && !tooBig) {
+          tooBig = mbUsed;
+          await exec('docker', ['rm', '-f', name]);
+        }
+      });
+    }, 10_000);
     try {
       const { code } = await exec(
         'docker',
@@ -166,11 +192,15 @@ export class DockerRunner implements Runner {
         ],
         { onLine: log, timeoutMs: buildTimeoutMs, label: 'build' },
       );
+      if (tooBig) {
+        throw new Error(`The build stopped: the folder grew to ${tooBig} MB, above the ${config.limits.buildMaxDiskMb} MB limit.`);
+      }
       if (code === 137) {
         throw new Error(`The build ran out of memory (limit ${buildMemory}). Reduce what the build loads at once (fewer parallel jobs, smaller bundles), or ask the administrator to raise HOSTX_BUILD_MEMORY.`);
       }
       if (code !== 0) throw new Error(`The build failed with exit code ${code}. See the log above.`);
     } finally {
+      clearInterval(watcher);
       // On timeout only the docker CLI is killed: make sure the container goes too.
       await exec('docker', ['rm', '-f', name]);
       await fs.rm(envFile, { force: true });
@@ -187,7 +217,7 @@ export class DockerRunner implements Runner {
   /** Starts `image` next to the running version on a fresh port; the caller switches traffic once it resolves. */
   private async startVersion(project: Project, kind: Detection['kind'], image: string, version: string, log: (l: string) => void): Promise<RuntimePatch> {
     // One private network per project: containers of different users cannot reach each other.
-    await exec('docker', ['network', 'create', '--driver', 'bridge', networkName(project)]);
+    await ensureNetwork(networkName(project));
     const port = await PortService.reserve(Store.usedPorts());
     try {
       const patch = await this.startContainer(project, kind, versionedName(project, version), image, port, log);
@@ -212,7 +242,7 @@ export class DockerRunner implements Runner {
     port: number,
     log: (l: string) => void,
   ): Promise<RuntimePatch> {
-    const innerPort = kind === 'static' ? 80 : 3000;
+    const innerPort = kind === 'static' ? 8080 : 3000;
     const envFile = path.join(config.envDir, `${name}.env`);
     await fs.mkdir(config.envDir, { recursive: true });
     const lines = Object.entries(project.env).map(([k, v]) => `${k}=${v}`);
@@ -246,6 +276,9 @@ export class DockerRunner implements Runner {
         ],
         { onLine: log },
       );
+    } catch (err) {
+      await exec('docker', ['rm', '-f', name]);
+      throw err;
     } finally {
       await fs.rm(envFile, { force: true });
     }
@@ -266,7 +299,7 @@ export class DockerRunner implements Runner {
     const old = containerName(previous);
     if (old === current.containerName) return;
     // Give requests that were already in flight on the old version a moment to finish.
-    await new Promise((r) => setTimeout(r, 2000));
+    await new Promise((r) => setTimeout(r, config.limits.drainSeconds * 1000));
     await exec('docker', ['rm', '-f', old]);
     // Keep the images of the last few successful deployments (rollback targets) and the one now serving.
     const keep = new Set(
@@ -310,6 +343,25 @@ export class DockerRunner implements Runner {
 
   async isAlive(project: Project): Promise<boolean> {
     return this.containerRunning(containerName(project));
+  }
+
+  /**
+   * Boot cleanup: build sandboxes left by a restart, and app containers of a deploy that never got switched to
+   * (the engine stopped between starting the new version and saving it). Only the container a project points at stays.
+   */
+  async cleanupOrphans(): Promise<void> {
+    const { stdout: builds } = await exec('docker', ['ps', '-aq', '--filter', 'label=hostx.build']);
+    const buildIds = builds.split('\n').map((s) => s.trim()).filter(Boolean);
+    if (buildIds.length) await exec('docker', ['rm', '-f', ...buildIds]);
+
+    const { stdout } = await exec('docker', ['ps', '-a', '--filter', 'label=hostx.project', '--format', '{{.Names}}\t{{.Label "hostx.project"}}']);
+    for (const line of stdout.split('\n').filter(Boolean)) {
+      const [name, projectId] = line.split('\t');
+      const project = projectId ? Store.getProject(projectId) : undefined;
+      if (!name) continue;
+      // Deleted project, or a version that is not the one the project serves.
+      if (!project || containerName(project) !== name) await exec('docker', ['rm', '-f', name]);
+    }
   }
 
   /** Applies new memory/CPU limits to the running container without a restart (plan change). */

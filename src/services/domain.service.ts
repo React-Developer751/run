@@ -70,7 +70,8 @@ export class DomainService {
     const name = this.normalize(raw);
     if (project.domains.some((d) => d.name === name)) throw new HttpError(409, 'This domain is already on the project');
     if (project.domains.length >= MAX_PER_PROJECT) throw new HttpError(400, `A project can have at most ${MAX_PER_PROJECT} domains`);
-    if (Store.getProjectByDomain(name)) throw new HttpError(409, 'This domain is already connected to another project');
+    // A domain verified elsewhere can still be added: whoever publishes this project's TXT record (i.e. controls DNS
+    // today, e.g. after the domain changed hands) takes it over on verification.
     const limit = limitsFor(Store.getUserById(project.userId)).customDomains;
     const used = Store.projectsOf(project.userId).reduce((n, p) => n + p.domains.length, 0);
     if (used >= limit) {
@@ -124,8 +125,6 @@ export class DomainService {
     const patch: Partial<CustomDomain> = { lastCheckedAt: new Date().toISOString(), lastError: null };
     try {
       if (!domain.verifiedAt) {
-        const owner = Store.getProjectByDomain(name);
-        if (owner && owner.id !== project.id) throw new Error('This domain was verified by another project in the meantime');
         const records = (await this.lookup(() => this.dns.resolveTxt(this.challengeName(name)), [])).map((chunks) => chunks.join(''));
         if (records.includes(domain.token)) patch.verifiedAt = new Date().toISOString();
         else patch.lastError = `TXT record ${this.challengeName(name)} not found yet (DNS changes can take a few minutes)`;
@@ -139,7 +138,7 @@ export class DomainService {
     const updated = await Store.updateProject(fresh.id, { domains: fresh.domains.map((d) => (d.name === name ? { ...d, ...patch } : d)) });
     if (patch.verifiedAt) {
       logger.info(`Custom domain ${name} verified for ${project.slug}`);
-      // The domain now belongs here: drop unverified claims on other projects.
+      // The domain now belongs here: drop every other project's claim, verified or not (DNS proves current control).
       for (const other of Store.allProjects()) {
         if (other.id !== project.id && other.domains.some((d) => d.name === name)) {
           await Store.updateProject(other.id, { domains: other.domains.filter((d) => d.name !== name) });

@@ -1,4 +1,4 @@
-import type { AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
+import type { AdminNotification, StorageReport, AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 export class ApiError extends Error {
@@ -63,12 +63,12 @@ async function request<T>(path: string, method = 'GET', body?: unknown, retried 
 export const api = {
   health: () => request<Health>('/api/health'),
 
-  register: (name: string, email: string, password: string, captcha?: string) =>
-    request<{ user: User }>('/api/auth/register', 'POST', { name, email, password, captcha, acceptTerms: true }),
+  register: (name: string, email: string, password: string) =>
+    request<{ user: User }>('/api/auth/register', 'POST', { name, email, password, acceptTerms: true }),
   deleteAccount: (password: string) => request<{ ok: true }>('/api/auth/delete-account', 'POST', { password }),
   verifyEmail: (token: string) => request<{ ok: true }>('/api/auth/verify-email', 'POST', { token }),
   resendVerification: () => request<{ ok: true; alreadyVerified?: boolean }>('/api/auth/resend-verification', 'POST', {}),
-  forgotPassword: (email: string, captcha?: string) => request<{ ok: true }>('/api/auth/forgot-password', 'POST', { email, captcha }),
+  forgotPassword: (email: string) => request<{ ok: true }>('/api/auth/forgot-password', 'POST', { email }),
   resetPassword: (token: string, password: string) => request<{ ok: true }>('/api/auth/reset-password', 'POST', { token, password }),
   login: (email: string, password: string) =>
     request<{ user: User }>('/api/auth/login', 'POST', { email, password }),
@@ -139,6 +139,10 @@ export const api = {
     settings: () => request<{ settings: PlatformSettings }>('/api/admin/settings'),
     updateSettings: (patch: Partial<PlatformSettings>) => request<{ settings: PlatformSettings }>('/api/admin/settings', 'PATCH', patch),
     audit: () => request<{ entries: AuditEntry[] }>('/api/admin/audit?limit=200'),
+    notifications: (limit = 200) => request<{ unread: number; notifications: AdminNotification[] }>(`/api/admin/notifications?limit=${limit}`),
+    readNotifications: (ids?: string[]) => request<{ marked: number }>('/api/admin/notifications/read', 'POST', ids ? { ids } : {}),
+    storage: () => request<StorageReport>('/api/admin/storage'),
+    checkStorage: () => request<StorageReport>('/api/admin/storage/check', 'POST', {}),
   },
   runtimeLogs: (id: string) => request<{ logs: string }>(`/api/projects/${id}/logs?lines=300`),
 };

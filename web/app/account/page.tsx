@@ -57,7 +57,7 @@ function GitHubCard() {
               onClick={async () => {
                 if (!window.confirm('Disconnect GitHub from HostX? Existing projects keep deploying until you uninstall the app on GitHub.')) return;
                 setBusy(true);
-                await api.github.unlink().catch(() => undefined);
+                await api.github.unlink().catch((e: Error) => setResult({ ok: false, text: e.message }));
                 setStatus(await api.github.status().catch(() => null));
                 await reload();
                 setBusy(false);

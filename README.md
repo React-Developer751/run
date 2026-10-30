@@ -48,7 +48,7 @@ Production build: `npm run build && npm start` (engine), `cd web && npm run buil
 
 | Mode | Kab | Isolation |
 |---|---|---|
-| **Docker** | Docker engine mile to automatic | Har app apne container mein: `--memory=300m --cpus=0.5 --pids-limit=256`, sirf `127.0.0.1` pe publish |
+| **Docker** | Docker engine mile to automatic | Har app apne container mein: `--memory` + `--cpus` (plan ke hisaab se, default 512m / 0.5), `--pids-limit=256`, sirf `127.0.0.1` pe publish |
 | **Process** | Docker na ho (dev fallback) | **Koi isolation nahi** — repo ka code seedha aapki machine pe chalta hai |
 
 > Is Mac pe Docker install nahi hai, isliye abhi **Process mode** chal raha hai (navbar mein "Dev mode" chip).
@@ -70,11 +70,12 @@ Static sites (Vite/CRA): Docker mode mein nginx container; Process mode mein bui
 **You must do on the server (cannot be done from code):**
 
 1. **Behind Caddy/nginx set `HOSTX_TRUST_PROXY=true`.** Without it every user shares the proxy's IP in rate limits. Never set it if the API is reachable directly.
-2. **Block the cloud metadata endpoint from containers** (otherwise a user's app can steal your VPS credentials): `iptables -I DOCKER-USER -d 169.254.169.254 -j DROP`.
-3. Firewall: only 80/443 (+SSH) public. Keep 3000, 4000, 8080 and 5001-5999 closed. Also set `HOSTX_PROXY_HOST=127.0.0.1` so the app proxy only listens for Caddy/nginx.
-4. Run the engine as a dedicated user. Docker group membership is root-equivalent, so protect that account (SSH keys only, no password login).
-5. **Back up `data/backups/` + `data/secret.key` off the server** (e.g. nightly rsync / S3). The engine writes a consistent snapshot `data/backups/hostx-YYYY-MM-DD.db` every day and keeps 7 (`HOSTX_BACKUP_DAYS`). Do not change `HOSTX_SECRET` / `secret.key` afterwards: stored env vars become unreadable (they are encrypted with it).
-6. Set `HOSTX_ALLOW_SIGNUP=false` once your own accounts exist (open sign-up lets strangers run builds on your CPU).
+2. **Docker network pools.** Every project gets its own Docker network; Docker's default pools allow only ~30. In `/etc/docker/daemon.json` set `{"default-address-pools":[{"base":"10.200.0.0/16","size":24}]}` (256 networks) and restart Docker.
+3. **Block what containers must not reach** (user code and builds run there): `iptables -I DOCKER-USER -d 169.254.169.254 -j DROP` (cloud metadata) and drop traffic from Docker bridges to the host's own ports (`iptables -I INPUT -i br+ -j DROP` / `-i docker0`), keeping only what you need.
+4. Firewall: only 80/443 (+SSH) public. Keep 3000, 4000, 8080 and 5001-5999 closed. Also set `HOSTX_PROXY_HOST=127.0.0.1` so the app proxy only listens for Caddy/nginx.
+5. Run the engine as a dedicated user. Docker group membership is root-equivalent, so protect that account (SSH keys only, no password login).
+6. **Back up `data/backups/` + `data/secret.key` off the server** (e.g. nightly rsync / S3). The engine writes a consistent snapshot `data/backups/hostx-YYYY-MM-DD.db` every day and keeps 7 (`HOSTX_BACKUP_DAYS`). Do not change `HOSTX_SECRET` / `secret.key` afterwards: stored env vars become unreadable (they are encrypted with it).
+7. Set `HOSTX_ALLOW_SIGNUP=false` once your own accounts exist (open sign-up lets strangers run builds on your CPU).
 
 **Known limits / accepted risks:**
 
@@ -157,7 +158,6 @@ Abhi per-database storage quota nahi hai (MongoDB khud support nahi karta): admi
 - SMTP set hote hi verification zaroori ho jata hai (`HOSTX_REQUIRE_VERIFIED_EMAIL=true|false` se badlo). Development mein SMTP na ho to email engine log mein print hota hai.
 - Domain par SPF/DKIM/DMARC records lagao (provider batata hai), warna mails spam mein jayenge.
 
-**CAPTCHA (optional, Cloudflare Turnstile, free):** engine mein `HOSTX_TURNSTILE_SECRET`, dashboard build mein `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. Sign-up aur forgot-password par lagta hai.
 
 ## GitHub App (private repos + instant deploys)
 
@@ -174,6 +174,18 @@ Users "Connect GitHub" karke apni private repos deploy kar sakte hain. HostX sir
 Engine env: `HOSTX_GITHUB_APP_ID`, `HOSTX_GITHUB_APP_SLUG` (URL wala naam), `HOSTX_GITHUB_CLIENT_ID`, `HOSTX_GITHUB_CLIENT_SECRET`, `HOSTX_GITHUB_WEBHOOK_SECRET`, aur `HOSTX_GITHUB_PRIVATE_KEY_FILE=/opt/hostx/github-app.pem` (ya poori PEM `HOSTX_GITHUB_PRIVATE_KEY` mein, `\n` ke saath). git >= 2.31 chahiye.
 
 Security: callback par installation id par bharosa nahi kiya jata. OAuth code se GitHub se poocha jata hai ki is GitHub user ko kaunsi installations dikhti hain, aur signed `state` usi HostX user ka hona chahiye jo signed-in hai. Public repos bina connect kiye pehle jaisi chalti hain.
+
+## Admin notifications
+
+Admin panel → **Notifications** (sidebar mein unread count). Saare admins ko email bhi jata hai (SMTP set ho to; ek project ke liye ghante mein max 1 email, in-app list mein sab kuch).
+
+| Alert | Kab |
+|---|---|
+| **Deploy failed** | Kisi bhi user ka koi bhi deploy fail ho (owner email, kaunsa deploy, error ki pehli line, app abhi live hai ya offline) |
+| **Database almost full** | Kisi project ka MongoDB database apne plan ki storage limit ke 80% (warning) / 95% (critical) par. Limits: Free 512 MB, Starter 2 GB, Pro 10 GB (`HOSTX_*_DATABASE_MB`) |
+| **Disk almost full** | Server disk jahan databases, backups aur builds rehte hain (`data/` aur Docker data root) 85% / 95% bhar jaye (`HOSTX_DISK_WARN_PERCENT`, `HOSTX_DISK_CRITICAL_PERCENT`) |
+
+Storage har 10 min check hota hai ("Check now" button bhi). Wahi level 24 ghante mein ek baar hi dobara aata hai; warning se critical par turant. Page par disk usage aur sabse bade databases ki list bhi dikhti hai.
 
 ## Crash monitor + alerts
 
@@ -230,19 +242,20 @@ Root domain (`myshop.com`) ke liye `HOSTX_PUBLIC_IP` set ho to A record dikhta h
 
 ## Plans & billing (Razorpay)
 
-| Plan | Price | Projects | RAM / CPU per app | MongoDB | Custom domains | Sleep |
-|---|---|---|---|---|---|---|
-| Free | ₹0 | 2 | 256 MB / 0.25 | 1 | 1 | 15 min idle ke baad |
-| Starter | ₹299/mo | 5 | 512 MB / 0.5 | 3 | 3 | Kabhi nahi |
-| Pro | ₹999/mo | 15 | 1 GB / 1 | 10 | 10 | Kabhi nahi |
+| Plan | Price | Projects | RAM / CPU per app | MongoDB | Custom domains |
+|---|---|---|---|---|---|
+| Free | ₹0 | 2 | 512 MB / 0.5 | 1 | 1 |
+| Starter | ₹299/mo | 5 | 1 GB / 1 | 3 | 3 |
+| Pro | ₹999/mo | 15 | 2 GB / 2 | 10 | 10 |
 
-Sab env se badal sakte ho (`HOSTX_PRICE_STARTER`, `HOSTX_FREE_PROJECTS`, `HOSTX_PRO_MEMORY`, `HOSTX_FREE_SLEEP_MINUTES` ...; dekho `src/config/plans.ts`). **Billing tabhi on hoti hai jab Razorpay keys set hon.** Bina keys ke purana behaviour (HOSTX_MAX_PROJECTS, HOSTX_APP_MEMORY, koi sleep nahi) waisa hi rehta hai. Admins par plan limits nahi lagti.
+Har plan par apps **hamesha chalu** rehti hain: koi sleeping mode nahi (Render ke free tier ki tarah 15 min baad band nahi hoti). Free apps bhi 24 ghante server ki RAM leti hain, isliye server ka size users ke hisaab se rakho (`Free projects × 512 MB`).
+
+Sab env se badal sakte ho (`HOSTX_PRICE_STARTER`, `HOSTX_FREE_PROJECTS`, `HOSTX_PRO_MEMORY`, `HOSTX_STARTER_CPUS` ...; dekho `src/config/plans.ts`). **Billing tabhi on hoti hai jab Razorpay keys set hon.** Bina keys ke purana behaviour (HOSTX_MAX_PROJECTS, HOSTX_APP_MEMORY) waisa hi rehta hai. Admins par plan limits nahi lagti.
 
 - User **Billing** page → Upgrade → Razorpay ka hosted payment page (UPI autopay, card, netbanking). Plan sirf **signed webhook** aane par badalta hai (browser par bharosa nahi). Duplicate webhooks ignore hote hain.
 - Paid plans ke beech switch: same subscription update hota hai (Razorpay prorate karta hai). Cancel: paid period khatam hone tak plan rehta hai, phir Free.
 - Renewal fail: Razorpay retry karta hai, tab tak plan rehta hai. Halted/cancelled → Free.
 - Plan badalte hi chal rahe containers ki RAM/CPU **bina restart** ke badal jaati hai (`docker update`). Downgrade par purane extra projects delete nahi hote, bas naye nahi ban sakte.
-- **Free tier sleep:** web service 15 min bina request ke rahe to stop ho jati hai (status *Sleeping*). Agli request aate hi proxy use start karke wahi request serve karta hai (Docker mein kuch second). Static sites kabhi sleep nahi hoti.
 - Admin → Users mein har user ka plan haath se set kar sakte ho (free upgrade, koi charge nahi).
 - Public `/pricing` page (sitemap mein).
 
@@ -276,7 +289,7 @@ Purana live version tab tak chalta rehta hai jab tak naya deploy successful na h
 | `HOSTX_MAX_PROJECTS` | `5` | Per-user project limit |
 | `HOSTX_POLL_SECONDS` | `60` | Auto-deploy polling interval (`0` = off) |
 | `HOSTX_API_PUBLIC_URL` | `http://localhost:4000` | Webhook URL jo dashboard dikhata hai |
-| `HOSTX_APP_MEMORY` / `HOSTX_APP_CPUS` | `300m` / `0.5` | Docker limits (billing off) |
+| `HOSTX_APP_MEMORY` / `HOSTX_APP_CPUS` | `512m` / `0.5` | Docker limits (billing off) |
 | `HOSTX_BUILD_MEMORY` / `HOSTX_BUILD_CPUS` | `1g` / `1` | Har build sandbox ki limit (`HOSTX_MAX_BUILDS`=2 ek saath) |
 | `HOSTX_BUILD_MAX_DISK_MB` | `3072` | Build folder ka max size |
 
@@ -295,8 +308,8 @@ Sab (health aur webhook ke alawa) login cookie maangte hain (`credentials: 'incl
 
 Files: `.env.production.example`, `web/.env.example`, `deploy/hostx-engine.service`, `deploy/hostx-web.service`, `deploy/Caddyfile`.
 
-1. **Server**: Linux VPS, Node 20+, git, **Docker Engine** (Process mode production mein start hi nahi hoga — `NODE_ENV=production` + Docker na ho to engine refuse karta hai).
-2. **DNS**: `app.yourdomain.com`, `api.yourdomain.com` aur wildcard `*.yourdomain.com` → server IP.
+1. **Server**: Linux VPS, **Node 22.13+**, git, **Docker Engine** (Process mode production mein start hi nahi hoga — `NODE_ENV=production` + Docker na ho to engine refuse karta hai).
+2. **DNS**: `app.yourdomain.com`, `api.yourdomain.com`, aur apps domain `yourapps.app` + wildcard `*.yourapps.app` → server IP.
 3. `cp .env.production.example .env` aur edit karo: `HOSTX_BASE_DOMAIN`, `HOSTX_SECRET` (lamba random), `HOSTX_PUBLIC_SCHEME=https`, `HOSTX_PUBLIC_PORT=443`, `HOSTX_WEB_ORIGIN=https://app.yourdomain.com`. `web/.env.local`: `NEXT_PUBLIC_API_URL=https://api.yourdomain.com` (build se pehle).
 4. `npm ci && npm run build` aur `cd web && npm ci && npm run build`.
 5. systemd units copy karo (`deploy/*.service`), `systemctl enable --now hostx-engine hostx-web`.

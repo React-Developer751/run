@@ -1,4 +1,4 @@
-export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'sleeping';
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
 
 export interface User {
@@ -99,7 +99,6 @@ export interface Health {
   /** true when the server can create MongoDB databases. */
   databases?: boolean;
   github?: boolean;
-  captcha?: boolean;
   billing?: boolean;
 }
 
@@ -109,9 +108,9 @@ export interface PlanLimits {
   projects: number;
   databases: number;
   customDomains: number;
+  databaseMb: number;
   memory: string;
   cpus: string;
-  sleepAfterMinutes: number | null;
 }
 
 export interface Plan extends PlanLimits {
@@ -226,4 +225,24 @@ export interface AdminStats {
     baseDomain: string;
   };
   settings: PlatformSettings;
+}
+
+export interface AdminNotification {
+  id: string;
+  at: string;
+  kind: 'deploy-failed' | 'database-near-limit' | 'disk-near-full';
+  severity: 'warning' | 'critical';
+  title: string;
+  message: string;
+  projectId: string | null;
+  projectName: string | null;
+  userId: string | null;
+  readAt: string | null;
+}
+
+export interface StorageReport {
+  checkedAt: string | null;
+  disks: Array<{ path: string; mount: string; totalMb: number; freeMb: number; usedPercent: number }>;
+  databases: Array<{ projectId: string; projectName: string; ownerEmail: string; database: string; usedMb: number; limitMb: number; usedPercent: number }>;
+  databaseNote: string | null;
 }

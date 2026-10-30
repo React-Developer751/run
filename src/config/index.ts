@@ -68,8 +68,6 @@ export const config = {
   },
   // Unverified accounts may sign in but not deploy. Default: on whenever email can actually be sent.
   requireVerifiedEmail: env.HOSTX_REQUIRE_VERIFIED_EMAIL ? env.HOSTX_REQUIRE_VERIFIED_EMAIL === 'true' : Boolean(smtpUrl),
-  // Cloudflare Turnstile secret: when set, sign-up and "forgot password" require a CAPTCHA.
-  turnstileSecret: env.HOSTX_TURNSTILE_SECRET || null,
 
   // GitHub App (private repositories + one webhook for every repo). All fields are needed to turn it on.
   github: {
@@ -102,7 +100,7 @@ export const config = {
   refreshCookie: 'hostx_rt',
 
   limits: {
-    memory: env.HOSTX_APP_MEMORY ?? '300m',
+    memory: env.HOSTX_APP_MEMORY ?? '512m',
     cpus: env.HOSTX_APP_CPUS ?? '0.5',
     pids: '256',
     maxProjectsPerUser: num(env.HOSTX_MAX_PROJECTS, 5),
@@ -117,6 +115,8 @@ export const config = {
     cloneTimeoutMs: 2 * 60 * 1000,
     startTimeoutMs: 60 * 1000,
     deploymentsKept: 15,
+    // After a switch, the old version keeps running this long so in-flight requests can finish.
+    drainSeconds: num(env.HOSTX_DRAIN_SECONDS, 10),
     // Images of this many recent successful deployments are kept on disk for one-click rollback.
     rollbackImages: 3,
     maxLogBytes: 2 * 1024 * 1024,

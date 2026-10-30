@@ -10,9 +10,9 @@ import { AuthService } from './services/auth.service.js';
 import { DeployService } from './services/deploy.service.js';
 import { MongoService } from './services/mongo.service.js';
 import { MonitorService } from './services/monitor.service.js';
-import { SleepService } from './services/sleep.service.js';
 import { DomainService } from './services/domain.service.js';
 import { BackupService } from './services/backup.service.js';
+import { StorageMonitorService } from './services/storage-monitor.service.js';
 import { Db } from './services/db.service.js';
 import { ProxyService } from './services/proxy.service.js';
 import { RunnerService } from './services/runner.service.js';
@@ -30,6 +30,8 @@ async function main(): Promise<void> {
   await Store.init();
   await RunnerService.init();
   await MongoService.init();
+
+  await DeployService.recoverStatuses();
 
   const router = new Router();
   registerAuthRoutes(router);
@@ -61,9 +63,9 @@ async function main(): Promise<void> {
   void DeployService.recover().then(() => {
     AutoDeployService.start();
     MonitorService.start();
-    SleepService.start();
     DomainService.start();
     BackupService.start();
+    StorageMonitorService.start();
   });
 
   // Deployed apps are detached from HostX, so stopping the engine never takes them down.
@@ -81,6 +83,8 @@ async function main(): Promise<void> {
 }
 
 process.on('unhandledRejection', (reason) => logger.error('Unhandled rejection', reason));
+// Last line of defence: one bad event (e.g. an I/O error on a stream) must not take down the proxy for every app.
+process.on('uncaughtException', (err) => logger.error('Uncaught exception (engine keeps running)', err));
 
 main().catch((err) => {
   logger.error(`HostX failed to start: ${(err as Error).message}`);

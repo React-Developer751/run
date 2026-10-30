@@ -10,12 +10,12 @@ export interface PlanLimits {
   databases: number;
   /** Custom domains across all of the user's projects. */
   customDomains: number;
+  /** Storage per MongoDB database in MB. Admins are alerted at 80% and 95%. */
+  databaseMb: number;
   /** Docker memory limit per app, e.g. "512m". */
   memory: string;
   /** Docker CPU share per app, e.g. "0.5". */
   cpus: string;
-  /** Web services sleep after this many idle minutes and wake on the next request. null = never. */
-  sleepAfterMinutes: number | null;
 }
 
 export interface Plan extends PlanLimits {
@@ -36,9 +36,10 @@ export const PLANS: Record<PlanId, Plan> = {
     projects: n(env.HOSTX_FREE_PROJECTS, 2),
     databases: n(env.HOSTX_FREE_DATABASES, 1),
     customDomains: n(env.HOSTX_FREE_DOMAINS, 1),
-    memory: env.HOSTX_FREE_MEMORY ?? '256m',
-    cpus: env.HOSTX_FREE_CPUS ?? '0.25',
-    sleepAfterMinutes: n(env.HOSTX_FREE_SLEEP_MINUTES, 15),
+    databaseMb: n(env.HOSTX_FREE_DATABASE_MB, 512),
+    // Enough for a typical Express + Mongoose API to run without slowdowns or out-of-memory crashes.
+    memory: env.HOSTX_FREE_MEMORY ?? '512m',
+    cpus: env.HOSTX_FREE_CPUS ?? '0.5',
   },
   starter: {
     id: 'starter',
@@ -47,9 +48,9 @@ export const PLANS: Record<PlanId, Plan> = {
     projects: n(env.HOSTX_STARTER_PROJECTS, 5),
     databases: n(env.HOSTX_STARTER_DATABASES, 3),
     customDomains: n(env.HOSTX_STARTER_DOMAINS, 3),
-    memory: env.HOSTX_STARTER_MEMORY ?? '512m',
-    cpus: env.HOSTX_STARTER_CPUS ?? '0.5',
-    sleepAfterMinutes: null,
+    databaseMb: n(env.HOSTX_STARTER_DATABASE_MB, 2048),
+    memory: env.HOSTX_STARTER_MEMORY ?? '1g',
+    cpus: env.HOSTX_STARTER_CPUS ?? '1',
   },
   pro: {
     id: 'pro',
@@ -58,9 +59,9 @@ export const PLANS: Record<PlanId, Plan> = {
     projects: n(env.HOSTX_PRO_PROJECTS, 15),
     databases: n(env.HOSTX_PRO_DATABASES, 10),
     customDomains: n(env.HOSTX_PRO_DOMAINS, 10),
-    memory: env.HOSTX_PRO_MEMORY ?? '1g',
-    cpus: env.HOSTX_PRO_CPUS ?? '1',
-    sleepAfterMinutes: null,
+    databaseMb: n(env.HOSTX_PRO_DATABASE_MB, 10240),
+    memory: env.HOSTX_PRO_MEMORY ?? '2g',
+    cpus: env.HOSTX_PRO_CPUS ?? '2',
   },
 };
 

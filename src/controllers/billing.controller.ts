@@ -60,9 +60,11 @@ export class BillingController {
       throw new HttpError(401, 'Invalid signature');
     }
     const eventId = String(ctx.headers['x-razorpay-event-id'] ?? '');
-    if (eventId && !(await Store.markWebhookEvent(eventId))) return { ok: true, duplicate: true };
+    if (eventId && Store.hasWebhookEvent(eventId)) return { ok: true, duplicate: true };
     const payload = await ctx.json();
     const result = await BillingService.handleEvent(String(payload.event ?? ''), payload);
+    // Recorded only after it was applied: if handling fails we answer 500 and Razorpay's retry is processed normally.
+    if (eventId) await Store.markWebhookEvent(eventId);
     logger.info(`Razorpay ${String(payload.event)} -> ${result}`);
     return { ok: true, result };
   }

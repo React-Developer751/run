@@ -1,9 +1,24 @@
 /** Public origin of the dashboard, used for canonical URLs, sitemap and social cards. Set NEXT_PUBLIC_SITE_URL in production. */
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000').replace(/\/+$/, '');
 export const SITE_NAME = 'HostX';
-export const SITE_TITLE = 'HostX — Deploy React & Node.js apps from a GitHub link';
+export const SITE_TITLE = 'HostX — Deploy your MERN app from GitHub in minutes';
 export const SITE_DESCRIPTION =
-  'HostX is a free, self-hosted mini Render. Paste a GitHub repo, pick a folder, and get your React frontend and Node.js backend live on their own subdomain with real build logs and auto-deploys.';
+  'Host your MERN app like on Render: connect GitHub, get a managed MongoDB database, free HTTPS and custom domains. Apps never sleep. Free plan, paid plans from ₹299/month.';
+
+/**
+ * Full metadata for a public page. A page-level `openGraph` replaces the root one entirely in Next.js, so every
+ * public page goes through this to keep the image, site name, locale and URL.
+ */
+export function pageMetadata({ title, description, path, absoluteTitle = false }: { title: string; description: string; path: string; absoluteTitle?: boolean }) {
+  const fullTitle = absoluteTitle ? title : `${title} · ${SITE_NAME}`;
+  return {
+    title: absoluteTitle ? { absolute: title } : title,
+    description,
+    alternates: { canonical: path },
+    openGraph: { type: 'website' as const, siteName: SITE_NAME, locale: 'en_US', url: path, title: fullTitle, description, images: ['/opengraph-image'] },
+    twitter: { card: 'summary_large_image' as const, title: fullTitle, description, images: ['/opengraph-image'] },
+  };
+}
 
 /**
  * Business details shown on the legal and contact pages (Razorpay and Indian law need real ones).

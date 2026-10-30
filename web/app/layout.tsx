@@ -1,5 +1,4 @@
 import type { Metadata, Viewport } from 'next';
-import { cookies } from 'next/headers';
 import type { ReactNode } from 'react';
 import { AuthProvider } from '@/lib/auth';
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL } from '@/lib/site';
@@ -24,12 +23,16 @@ export const viewport: Viewport = {
   ],
 };
 
-// The saved theme lives in a cookie, so the server renders the right one on first paint: no script, no flash.
-export default async function RootLayout({ children }: { children: ReactNode }) {
-  const saved = (await cookies()).get('hostx_theme')?.value;
-  const theme = saved === 'dark' ? 'dark' : 'light';
+// Applies the saved theme (cookie) before first paint. Done in a tiny inline script instead of reading cookies() on the
+// server, which would make every page dynamic and stop marketing/legal pages from being served statically.
+const THEME_SCRIPT = `try{if(/(?:^|; )hostx_theme=dark/.test(document.cookie))document.documentElement.dataset.theme='dark'}catch(e){}`;
+
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" data-scroll-behavior="smooth" data-theme={theme}>
+    <html lang="en" data-scroll-behavior="smooth" data-theme="light" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>
         <AuthProvider>{children}</AuthProvider>
       </body>

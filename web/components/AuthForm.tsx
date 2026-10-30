@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useAuth } from '@/lib/auth';
-import { Captcha, captchaEnabled } from './Captcha';
 import { Nav } from './Nav';
 
 export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
@@ -15,8 +14,6 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [captcha, setCaptcha] = useState('');
-  const [captchaKey, setCaptchaKey] = useState(0);
   const [accepted, setAccepted] = useState(false);
   const isLogin = mode === 'login';
 
@@ -30,14 +27,11 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
     setBusy(true);
     try {
       if (isLogin) await signIn(email, password);
-      else await signUp(name, email, password, captcha || undefined);
+      else await signUp(name, email, password);
       router.replace('/dashboard');
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
-      // A CAPTCHA token works once: get a fresh one for the next attempt.
-      setCaptcha('');
-      setCaptchaKey((k) => k + 1);
     }
   };
 
@@ -91,11 +85,9 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
               </label>
             )}
 
-            {!isLogin && <Captcha key={captchaKey} onToken={setCaptcha} />}
-
             {error && <div className="error-box" role="alert">{error}</div>}
 
-            <button className="btn btn-primary btn-lg" disabled={busy || (!isLogin && ((captchaEnabled && !captcha) || !accepted))}>
+            <button className="btn btn-primary btn-lg" disabled={busy || (!isLogin && !accepted)}>
               {busy ? <span className="spinner" /> : isLogin ? 'Sign in' : 'Create account'}
             </button>
           </form>

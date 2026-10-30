@@ -1,13 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME } from '@/lib/site';
+import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Terms of Service',
   description: `The terms that apply when you use ${SITE_NAME} to deploy and host applications.`,
-  alternates: { canonical: '/terms' },
-};
+  path: '/terms',
+});
 
 export default function TermsPage() {
   return (
@@ -33,8 +33,8 @@ export default function TermsPage() {
         <Link href="/pricing">Pricing</Link> page and may change; we will give reasonable notice of changes that reduce a paid plan.
       </p>
       <p>
-        Free plan applications may be put to sleep when idle and woken on the next request. We may apply resource limits (memory, CPU,
-        build time, storage, bandwidth) to keep the platform fair and stable.
+        Applications stay running on every plan. We may apply resource limits (memory, CPU, build time, storage, bandwidth) to keep the
+        platform fair and stable.
       </p>
 
       <h2>3. Your content and code</h2>

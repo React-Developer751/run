@@ -116,7 +116,7 @@ export default function AdminUsers() {
                 </tr>
               );
             })}
-            {data && users.length === 0 && <tr><td colSpan={7} className="empty-row">No users match.</td></tr>}
+            {data && users.length === 0 && <tr><td colSpan={8} className="empty-row">No users match.</td></tr>}
           </tbody>
         </table>
       </div>

@@ -18,6 +18,10 @@ export class DeployLog {
   constructor(deploymentId: string) {
     mkdirSync(config.logsDir, { recursive: true });
     this.stream = createWriteStream(deployLogPath(deploymentId), { flags: 'a' });
+    // A full disk must lose log lines, not crash the engine (and with it every hosted app's proxy).
+    this.stream.on('error', () => {
+      this.truncated = true;
+    });
   }
 
   write = (line: string): void => {

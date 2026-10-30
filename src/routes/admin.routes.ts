@@ -21,4 +21,8 @@ export function registerAdminRoutes(router: Router): void {
   router.get('/api/admin/settings', AdminController.getSettings);
   router.patch('/api/admin/settings', AdminController.updateSettings);
   router.get('/api/admin/audit', AdminController.audit);
+  router.get('/api/admin/notifications', AdminController.notifications);
+  router.post('/api/admin/notifications/read', AdminController.readNotifications);
+  router.get('/api/admin/storage', AdminController.storage);
+  router.post('/api/admin/storage/check', AdminController.checkStorage);
 }

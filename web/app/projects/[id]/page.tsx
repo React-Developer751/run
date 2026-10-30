@@ -51,8 +51,13 @@ function BuildLogs({ projectId, deployment, onFinished }: { projectId: string; d
           finished.current();
           return;
         }
-      } catch {
-        /* transient error: retry on the next tick */
+      } catch (e) {
+        // 4xx (deleted, not yours, signed out) will not fix itself: stop polling and say why.
+        const status = (e as { status?: number }).status ?? 0;
+        if (status >= 400 && status < 500) {
+          if (!cancelled) setLines((prev) => [...prev, `[hostx] Could not load the log: ${(e as Error).message}`]);
+          return;
+        }
       }
       timer = setTimeout(tick, 1000);
     };
@@ -92,9 +97,11 @@ export default function ProjectPage() {
     api.health().then((h) => setDatabasesOn(Boolean(h.databases))).catch(() => undefined);
   }, []);
 
+  const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const flash = (message: string) => {
     setToast(message);
-    setTimeout(() => setToast(''), 2600);
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(''), 2600);
   };
 
   const load = useCallback(async () => {
@@ -219,9 +226,9 @@ export default function ProjectPage() {
             <button className="btn" onClick={redeploy} disabled={deploying || busy !== ''}>
               {busy === 'deploy' ? <span className="spinner" /> : <Icon name="refresh" />} Redeploy
             </button>
-            {project.status === 'stopped' || project.status === 'crashed' || project.status === 'sleeping' ? (
+            {project.status === 'stopped' || project.status === 'crashed' ? (
               <button className="btn" disabled={busy !== ''} onClick={() => act('start', () => api.start(id), 'App started')}>
-                {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} {project.status === 'crashed' ? 'Restart' : project.status === 'sleeping' ? 'Wake up' : 'Start'}
+                {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} {project.status === 'crashed' ? 'Restart' : 'Start'}
               </button>
             ) : (
               <button className="btn" disabled={deploying || busy !== '' || project.status === 'failed'} onClick={() => act('stop', () => api.stop(id), 'App stopped')}>
@@ -232,11 +239,6 @@ export default function ProjectPage() {
         </div>
 
         {error && <div className="error-box" style={{ marginBottom: 20 }}>{error}</div>}
-        {project.status === 'sleeping' && (
-          <div className="notice-box" style={{ marginBottom: 20 }}>
-            This service is sleeping because it had no visitors for a while (Free plan). The next visit wakes it up in a few seconds. <a href="/billing">Upgrade</a> to keep it always on.
-          </div>
-        )}
         {project.status === 'crashed' && (
           <div className="error-box" style={{ marginBottom: 20 }}>
             This app crashed and is not serving traffic. Check <button className="link-btn" onClick={() => setTab('runtime')}>Runtime logs</button>, then restart, redeploy or roll back to an earlier version.

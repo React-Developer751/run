@@ -9,7 +9,7 @@ interface AuthState {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
-  signUp: (name: string, email: string, password: string, captcha?: string) => Promise<void>;
+  signUp: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   /** Re-reads the user from the server (e.g. after the email was confirmed in another tab). */
   reload: () => Promise<void>;
@@ -52,8 +52,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser((await api.login(email, password)).user);
   }, []);
 
-  const signUp = useCallback(async (name: string, email: string, password: string, captcha?: string) => {
-    setUser((await api.register(name, email, password, captcha)).user);
+  const signUp = useCallback(async (name: string, email: string, password: string) => {
+    setUser((await api.register(name, email, password)).user);
   }, []);
 
   const reload = useCallback(async () => {

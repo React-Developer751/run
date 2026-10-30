@@ -1,13 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME } from '@/lib/site';
+import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Privacy Policy',
   description: `What personal data ${SITE_NAME} collects, why, how long it is kept and how to exercise your rights.`,
-  alternates: { canonical: '/privacy' },
-};
+  path: '/privacy',
+});
 
 export default function PrivacyPage() {
   return (
@@ -35,8 +35,7 @@ export default function PrivacyPage() {
       <h2>2. Cookies and similar technology</h2>
       <p>
         We use only strictly necessary cookies: two HttpOnly sign-in cookies (a 15-minute access token and a refresh token). Your colour theme
-        choice is kept in your browser&apos;s local storage. We do not use advertising or third-party tracking cookies. If CAPTCHA is enabled,
-        Cloudflare Turnstile may process technical data to tell people from bots.
+        choice is kept in your browser&apos;s local storage. We do not use advertising or third-party tracking cookies.
       </p>
 
       <h2>3. Who we share data with</h2>

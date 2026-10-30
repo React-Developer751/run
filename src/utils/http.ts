@@ -174,6 +174,9 @@ function applyCors(req: http.IncomingMessage, res: http.ServerResponse): void {
 function enforceOrigin(req: http.IncomingMessage): void {
   const method = req.method ?? 'GET';
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+  // A browser always sends Origin on cross-site POSTs. Refuse foreign ones even without cookies: otherwise a page could
+  // log the visitor into the attacker's account (login CSRF). Server-to-server webhooks send no Origin and pass.
+  if (req.headers.origin && !config.webOrigins.includes(req.headers.origin)) throw new HttpError(403, 'Cross-site request blocked');
   const cookies = parseCookies(req.headers.cookie);
   const names = authCookieNames(req);
   if (!cookies[names.access] && !cookies[names.refresh]) return; // no ambient credentials to abuse
@@ -228,7 +231,14 @@ export function createApiServer(router: Router, authenticate: (req: http.Incomin
         ip: clientIp(req),
         headers: req.headers,
         raw: () => (rawPromise ??= readRaw(req)),
-        json: async () => parseJsonObject(await (rawPromise ??= readRaw(req))),
+        json: async () => {
+          const body = await (rawPromise ??= readRaw(req));
+          // JSON only: an HTML form cannot send application/json without a CORS preflight, which we never grant to others.
+          if (body.length > 0 && !/^application\/json\b/i.test(req.headers['content-type'] ?? '')) {
+            throw new HttpError(415, 'Send the request body as application/json');
+          }
+          return parseJsonObject(body);
+        },
       };
       const result = await matched.handler(ctx);
       send(res, ctx.status, result ?? { ok: true });

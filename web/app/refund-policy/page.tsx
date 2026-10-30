@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME } from '@/lib/site';
+import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Cancellation & Refund Policy',
   description: `How to cancel a ${SITE_NAME} subscription and when refunds are given.`,
-  alternates: { canonical: '/refund-policy' },
-};
+  path: '/refund-policy',
+});
 
 export default function RefundPolicyPage() {
   return (

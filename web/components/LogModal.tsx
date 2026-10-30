@@ -28,8 +28,12 @@ export function LogModal({ projectId, deploymentId, title, onClose }: { projectI
         if (r.lines.length) setLines((p) => [...p, ...r.lines]);
         setStatus(r.status);
         if (r.status === 'live' || r.status === 'failed') return;
-      } catch {
-        /* retry */
+      } catch (e) {
+        const status = (e as { status?: number }).status ?? 0;
+        if (status >= 400 && status < 500) {
+          if (!cancelled) setLines((p) => [...p, `[hostx] Could not load the log: ${(e as Error).message}`]);
+          return;
+        }
       }
       timer = setTimeout(tick, 1200);
     };

@@ -31,8 +31,10 @@ export class Vault {
       decipher.setAuthTag(Buffer.from(tag, 'base64'));
       return Buffer.concat([decipher.update(Buffer.from(data, 'base64')), decipher.final()]).toString('utf8');
     } catch {
+      // Never continue with empty secrets: an empty webhook secret would let anyone forge webhooks, and saving the
+      // project again would overwrite the real (still recoverable) ciphertext.
       logger.error('Could not decrypt a stored secret. Was HOSTX_SECRET / data/secret.key changed?');
-      return '';
+      throw new Error('Stored secrets cannot be decrypted with the current HOSTX_SECRET / data/secret.key. Restore the original key; nothing was changed.');
     }
   }
 }

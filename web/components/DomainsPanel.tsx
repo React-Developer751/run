@@ -12,14 +12,16 @@ export function DomainsPanel({ project, onChange, flash }: { project: Project; o
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
 
-  const run = async (key: string, fn: () => Promise<{ project: Project }>, done?: string) => {
+  const run = async (key: string, fn: () => Promise<{ project: Project }>, done?: string): Promise<boolean> => {
     setBusy(key);
     setError('');
     try {
       onChange((await fn()).project);
       if (done) flash(done);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     } finally {
       setBusy('');
     }
@@ -27,7 +29,7 @@ export function DomainsPanel({ project, onChange, flash }: { project: Project; o
 
   const add = (e: FormEvent) => {
     e.preventDefault();
-    void run('add', () => api.addDomain(project.id, domain.trim()), 'Domain added').then(() => setDomain(''));
+    void run('add', () => api.addDomain(project.id, domain.trim()), 'Domain added').then((ok) => ok && setDomain(''));
   };
 
   const copy = (v: string) => {

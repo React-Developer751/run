@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME } from '@/lib/site';
+import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Acceptable Use Policy',
   description: `What you may and may not host on ${SITE_NAME}, and how to report abuse.`,
-  alternates: { canonical: '/acceptable-use' },
-};
+  path: '/acceptable-use',
+});
 
 export default function AcceptableUsePage() {
   return (

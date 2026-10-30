@@ -70,7 +70,12 @@ export function validateEnv(value: unknown): Record<string, string> {
 }
 
 export function validateProjectName(value: unknown, fallback: string): string {
-  const raw = value === undefined || value === null || value === '' ? fallback : asString(value, 'name');
+  if (value === undefined || value === null || value === '') {
+    // Derived from the repo name, which may be 1 character ("user/b") or very long: always make it valid.
+    const name = fallback.slice(0, 40);
+    return name.length >= 2 ? name : `${name}-app`;
+  }
+  const raw = asString(value, 'name');
   if (raw.length < 2 || raw.length > 40) return bad('Project name must be 2-40 characters');
   return raw;
 }

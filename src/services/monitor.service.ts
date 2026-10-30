@@ -32,7 +32,7 @@ export class MonitorService {
     this.running = true;
     try {
       for (const project of [...Store.allProjects()]) {
-        // Sleeping (free plan) and stopped apps are down on purpose.
+        // Stopped apps are down on purpose.
         if ((project.status !== 'live' && project.status !== 'crashed') || project.runtime === null || project.runtime === 'static') continue;
         await this.check(project).catch((err) => logger.warn(`Health check of ${project.slug} failed`, err));
       }

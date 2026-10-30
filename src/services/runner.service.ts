@@ -48,6 +48,8 @@ export interface Runner {
   start(project: Project, srcDir: string, detection: Detection): Promise<RuntimePatch>;
   /** Runs an image built by an earlier deployment again (rollback). Docker only. */
   startImage?(project: Project, kind: Detection['kind'], image: string, log: (line: string) => void): Promise<RuntimePatch>;
+  /** Removes leftovers of interrupted deploys and builds (Docker only), run at boot. */
+  cleanupOrphans?(): Promise<void>;
   /** Changes memory/CPU of the running app in place (Docker only). */
   updateLimits?(project: Project, memory: string, cpus: string): Promise<void>;
   stop(project: Project): Promise<void>;

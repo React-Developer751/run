@@ -106,7 +106,6 @@ export class DeployController {
       urlTemplate: projectUrl('{slug}'),
       databases: MongoService.available(),
       github: GitHubService.enabled(),
-      captcha: Boolean(config.turnstileSecret),
       billing: billingEnabled(),
       signupOpen: Store.allUsers().length === 0 || (Store.settings().allowSignup ?? config.allowSignup),
       time: new Date().toISOString(),

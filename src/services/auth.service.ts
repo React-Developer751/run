@@ -32,7 +32,10 @@ export class AuthService {
     }
     try {
       this.secret = Buffer.from((await fs.readFile(config.secretFile, 'utf8')).trim(), 'hex');
-    } catch {
+    } catch (err) {
+      // Only a missing file means "first start". Anything else (permissions, I/O) must not silently replace the key:
+      // every stored secret is encrypted with it.
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error(`Cannot read ${config.secretFile}: ${(err as Error).message}`);
       this.secret = crypto.randomBytes(48);
       await fs.mkdir(config.dataDir, { recursive: true });
       await fs.writeFile(config.secretFile, this.secret.toString('hex'), { mode: 0o600 });

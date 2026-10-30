@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME } from '@/lib/site';
+import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Delivery Policy',
   description: `${SITE_NAME} is an online service: how and when it is delivered.`,
-  alternates: { canonical: '/shipping-policy' },
-};
+  path: '/shipping-policy',
+});
 
 export default function ShippingPolicyPage() {
   return (

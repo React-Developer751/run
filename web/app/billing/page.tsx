@@ -36,6 +36,7 @@ export default function BillingPage() {
       const [b, p] = await Promise.all([api.billing.me(), api.billing.plans()]);
       setInfo(b);
       setPlans(p.plans.filter((x) => x.available));
+      setError('');
     } catch (e) {
       setError((e as Error).message);
     }
@@ -113,8 +114,7 @@ export default function BillingPage() {
                 <Usage label="MongoDB databases" used={info.usage.databases} max={info.limits.databases} />
                 <Usage label="Custom domains" used={info.usage.customDomains} max={info.limits.customDomains} />
                 <p className="muted" style={{ fontSize: 13.5 }}>
-                  Each app: {info.limits.memory} RAM, {info.limits.cpus} CPU.{' '}
-                  {info.limits.sleepAfterMinutes !== null && `Web services sleep after ${info.limits.sleepAfterMinutes} idle minutes and wake on the next visit (the first request takes a few seconds).`}
+                  Each app: {info.limits.memory} RAM, {info.limits.cpus} CPU. Apps stay on all the time.
                 </p>
               </div>
               <div className="card stack">

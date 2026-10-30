@@ -1,5 +1,3 @@
-'use client';
-
 import type { Plan, PlanId } from '@/lib/types';
 
 const memoryLabel = (m: string) => m.replace(/m$/i, ' MB').replace(/g$/i, ' GB');
@@ -8,9 +6,9 @@ function features(p: Plan): string[] {
   return [
     `${p.projects} project${p.projects === 1 ? '' : 's'} (sites + services)`,
     `${memoryLabel(p.memory)} RAM · ${p.cpus} CPU per app`,
-    `${p.databases} MongoDB database${p.databases === 1 ? '' : 's'}`,
+    `${p.databases} MongoDB database${p.databases === 1 ? '' : 's'} · ${p.databaseMb >= 1024 ? `${p.databaseMb / 1024} GB` : `${p.databaseMb} MB`} each`,
     `${p.customDomains} custom domain${p.customDomains === 1 ? '' : 's'} with free SSL`,
-    p.sleepAfterMinutes === null ? 'Always on — never sleeps' : `Sleeps after ${p.sleepAfterMinutes} min idle, wakes on the next visit`,
+    'Always on — apps never sleep',
     'Auto-deploy from GitHub, private repos',
     'Free HTTPS subdomain',
   ];

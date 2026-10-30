@@ -1,13 +1,12 @@
 import type { Metadata } from 'next';
 import { AuthForm } from '@/components/AuthForm';
+import { pageMetadata } from '@/lib/site';
 
-export const metadata: Metadata = {
+export const metadata: Metadata = pageMetadata({
   title: 'Create your free account',
-  description: 'Create a free HostX account and deploy your React frontend and Node.js backend from a GitHub link in minutes. No credit card required.',
-  alternates: { canonical: '/register' },
-  openGraph: { type: 'website', title: 'Create your free account · HostX', description: 'Create a free HostX account and deploy your React frontend and Node.js backend from a GitHub link in minutes.', url: '/register' },
-  twitter: { card: 'summary_large_image', title: 'Create your free account · HostX' },
-};
+  description: 'Create a free HostX account and deploy your MERN app — React, Node/Express and MongoDB — from GitHub in minutes. No credit card required.',
+  path: '/register',
+});
 
 export default function RegisterPage() {
   return <AuthForm mode="register" />;
