@@ -226,7 +226,7 @@ export interface AdminStats {
 export interface AdminNotification {
   id: string;
   at: string;
-  kind: 'deploy-failed' | 'disk-near-full';
+  kind: 'deploy-failed' | 'disk-near-full' | 'memory-high' | 'capacity-near-limit';
   severity: 'warning' | 'critical';
   title: string;
   message: string;
@@ -239,4 +239,11 @@ export interface AdminNotification {
 export interface StorageReport {
   checkedAt: string | null;
   disks: Array<{ path: string; mount: string; totalMb: number; freeMb: number; usedPercent: number }>;
+  memory: { totalMb: number; usedMb: number; usedPercent: number; exact: boolean } | null;
+  capacity: {
+    liveApps: number;
+    projects: number;
+    ports: { used: number; total: number; usedPercent: number };
+    networks: { used: number; total: number; usedPercent: number } | null;
+  } | null;
 }

@@ -182,8 +182,10 @@ Admin panel → **Notifications** (sidebar mein unread count). Saare admins ko e
 |---|---|
 | **Deploy failed** | Kisi bhi user ka koi bhi deploy fail ho (owner email, kaunsa deploy, error ki pehli line, app abhi live hai ya offline) |
 | **Disk almost full** | Server disk jahan databases, backups aur builds rehte hain (`data/` aur Docker data root) 85% / 95% bhar jaye (`HOSTX_DISK_WARN_PERCENT`, `HOSTX_DISK_CRITICAL_PERCENT`) |
+| **Memory high** | Server RAM 85% / 95% use par, lagatar 3 minute tak (build ka chhota spike alert nahi deta). Sirf Linux par (`/proc/meminfo`), kyunki macOS cache ko "used" ginta hai. `HOSTX_MEMORY_WARN_PERCENT`, `HOSTX_MEMORY_CRITICAL_PERCENT` |
+| **Capacity limit** | App ports (5001-5999) ya Docker app networks 80% / 95% bhar jaayein (`HOSTX_NETWORK_CAPACITY`, default 250, README ke address pool ke hisaab se). Docker network banana fail ho to turant critical alert |
 
-Storage har 10 min check hota hai ("Check now" button bhi). Wahi level 24 ghante mein ek baar hi dobara aata hai; warning se critical par turant. Page par har disk ka usage bhi dikhta hai.
+Disk, ports aur networks har 10 min, RAM har minute check hote hain ("Check now" button bhi). Wahi level 24 ghante mein ek baar hi dobara aata hai; warning se critical par turant. Page par **Server capacity** card: har disk, RAM, ports, Docker networks aur live apps ki ginti.
 
 ## Crash monitor + alerts
 

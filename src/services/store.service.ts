@@ -176,7 +176,7 @@ interface Database {
 export interface AdminNotification {
   id: string;
   at: string;
-  kind: 'deploy-failed' | 'disk-near-full';
+  kind: 'deploy-failed' | 'disk-near-full' | 'memory-high' | 'capacity-near-limit';
   severity: 'warning' | 'critical';
   title: string;
   message: string;

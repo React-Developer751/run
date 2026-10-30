@@ -5,6 +5,7 @@ import { exec, run } from '../utils/exec.js';
 import { logger } from '../utils/logger.js';
 import { PortService } from './port.service.js';
 import { installCommand, type Detection } from './detect.service.js';
+import { StorageMonitorService } from './storage-monitor.service.js';
 import type { AppHealth, DeployContext, Runner, RuntimePatch } from './runner.service.js';
 import { Store, limitsFor, type Project } from './store.service.js';
 
@@ -67,6 +68,8 @@ export async function ensureNetwork(name: string): Promise<void> {
   let message = '';
   const created = await exec('docker', ['network', 'create', '--driver', 'bridge', name], { onLine: (l) => (message += `${l} `) });
   if (created.code !== 0) {
+    // Tell the admins right away: every new deploy fails until Docker gets a bigger address pool.
+    if (/address|pool|subnet/i.test(message)) void StorageMonitorService.networksExhausted(message.trim()).catch(() => undefined);
     throw new Error(`Could not create the app network (${message.trim() || `exit ${created.code}`}). Server admin: Docker may be out of network address pools.`);
   }
 }

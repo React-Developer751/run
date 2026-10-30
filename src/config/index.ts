@@ -115,6 +115,8 @@ export const config = {
     cloneTimeoutMs: 2 * 60 * 1000,
     startTimeoutMs: 60 * 1000,
     deploymentsKept: 15,
+    // Docker networks this server can create (one per project): 256 with the README's address pool. Alerts at 80% / 95%.
+    networkCapacity: num(env.HOSTX_NETWORK_CAPACITY, 250),
     // After a switch, the old version keeps running this long so in-flight requests can finish.
     drainSeconds: num(env.HOSTX_DRAIN_SECONDS, 10),
     // Images of this many recent successful deployments are kept on disk for one-click rollback.

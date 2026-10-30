@@ -10,6 +10,8 @@ import type { AdminNotification, StorageReport } from '@/lib/types';
 const KIND_LABEL: Record<AdminNotification['kind'], string> = {
   'deploy-failed': 'Deploy failed',
   'disk-near-full': 'Disk almost full',
+  'memory-high': 'Memory high',
+  'capacity-near-limit': 'Capacity limit',
 };
 
 type Filter = 'all' | 'unread' | AdminNotification['kind'];
@@ -46,14 +48,44 @@ function StorageCard() {
     <div className="card stack">
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap' }}>
         <div>
-          <h3 style={{ fontSize: 17 }}>Storage</h3>
+          <h3 style={{ fontSize: 17 }}>Server capacity</h3>
           <p className="muted" style={{ fontSize: 13.5 }}>
-            Checked every 10 minutes{report?.checkedAt ? ` · last ${timeAgo(report.checkedAt)}` : ' · first check runs a minute after start'}. Alerts at 85% and 95% full.
+            Checked every 10 minutes{report?.checkedAt ? ` · last ${timeAgo(report.checkedAt)}` : ' · first check runs a minute after start'}. Alerts: disk and RAM at 85% / 95%, ports and networks at 80% / 95%.
           </p>
         </div>
         <button className="btn btn-sm" onClick={checkNow} disabled={busy}>{busy ? <span className="spinner" /> : 'Check now'}</button>
       </div>
       {(checkError || error) && <div className="error-box">{checkError || error}</div>}
+      {report?.memory && (
+        <div className="stack" style={{ gap: 6 }}>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span>Memory (RAM){report.memory.exact ? '' : <small className="dim"> · approx. on this OS, no alerts</small>}</span>
+            <span className="mono">{report.memory.usedPercent}% · {gb(report.memory.usedMb)} of {gb(report.memory.totalMb)}</span>
+          </div>
+          <Bar pct={report.memory.usedPercent} warn={85} />
+        </div>
+      )}
+      {report?.capacity && (
+        <>
+          <div className="stack" style={{ gap: 6 }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <span>App ports</span>
+              <span className="mono">{report.capacity.ports.used} / {report.capacity.ports.total}</span>
+            </div>
+            <Bar pct={report.capacity.ports.usedPercent} warn={80} />
+          </div>
+          {report.capacity.networks && (
+            <div className="stack" style={{ gap: 6 }}>
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <span>Docker app networks</span>
+                <span className="mono">{report.capacity.networks.used} / {report.capacity.networks.total}</span>
+              </div>
+              <Bar pct={report.capacity.networks.usedPercent} warn={80} />
+            </div>
+          )}
+          <div className="muted" style={{ fontSize: 13.5 }}>{report.capacity.liveApps} apps live · {report.capacity.projects} projects in total</div>
+        </>
+      )}
       {report?.disks.map((d) => (
         <div key={d.mount} className="stack" style={{ gap: 6 }}>
           <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -93,7 +125,7 @@ export default function AdminNotifications() {
       <div className="page-head" style={{ marginBottom: 0 }}>
         <div>
           <h1>Notifications</h1>
-          <p>Failed deployments and server disks running out of space. Admins are also emailed (at most once an hour per project).</p>
+          <p>Failed deployments, and the server running low on disk, memory, ports or Docker networks. Admins are also emailed (at most once an hour per project).</p>
         </div>
         <button className="btn" disabled={!data?.unread} onClick={() => markRead()}>Mark all read{data?.unread ? ` (${data.unread})` : ''}</button>
       </div>
@@ -103,7 +135,7 @@ export default function AdminNotifications() {
       {error && <div className="error-box">{error}</div>}
 
       <div className="row" style={{ flexWrap: 'wrap' }}>
-        {(['all', 'unread', 'deploy-failed', 'disk-near-full'] as Filter[]).map((f) => (
+        {(['all', 'unread', 'deploy-failed', 'disk-near-full', 'memory-high', 'capacity-near-limit'] as Filter[]).map((f) => (
           <button key={f} className={`btn btn-sm ${filter === f ? 'btn-primary' : ''}`} onClick={() => setFilter(f)}>
             {f === 'all' ? 'All' : f === 'unread' ? 'Unread' : KIND_LABEL[f]}
           </button>
