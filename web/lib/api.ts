@@ -106,6 +106,9 @@ export const api = {
   remove: (id: string) => request<{ ok: true }>(`/api/projects/${id}`, 'DELETE'),
   rollback: (id: string, deploymentId: string) =>
     request<{ deployment: Deployment }>(`/api/projects/${id}/deployments/${deploymentId}/rollback`, 'POST', {}),
+  addDomain: (id: string, domain: string) => request<{ project: Project }>(`/api/projects/${id}/domains`, 'POST', { domain }),
+  verifyDomain: (id: string, name: string) => request<{ project: Project }>(`/api/projects/${id}/domains/${encodeURIComponent(name)}/verify`, 'POST', {}),
+  removeDomain: (id: string, name: string) => request<{ project: Project }>(`/api/projects/${id}/domains/${encodeURIComponent(name)}`, 'DELETE'),
   events: (id: string) => request<{ events: ProjectEvent[] }>(`/api/projects/${id}/events`),
   createDatabase: (id: string) => request<{ project: Project }>(`/api/projects/${id}/database`, 'POST', {}),
   deleteDatabase: (id: string) => request<{ project: Project }>(`/api/projects/${id}/database`, 'DELETE'),

@@ -113,6 +113,8 @@ export interface Project {
   containerName: string | null;
   /** Managed MongoDB add-on (null = none). The password is encrypted at rest like env vars. */
   database: ProjectDatabase | null;
+  /** Custom domains (e.g. www.myshop.com). Only verified ones receive traffic and TLS certificates. */
+  domains: CustomDomain[];
   /** GitHub App installation used to clone (private repos). null = public clone. */
   githubInstallationId: number | null;
   /** Deployment whose build is serving traffic right now (changes on success and on rollback). */
@@ -123,6 +125,18 @@ export interface Project {
   commit: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CustomDomain {
+  name: string;
+  /** Value of the TXT record _hostx-challenge.<name> that proves ownership. */
+  token: string;
+  verifiedAt: string | null;
+  /** Whether the domain's DNS points at HostX (informational: routing works by Host header once verified). */
+  dns: 'ok' | 'not-pointing' | 'unknown';
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  createdAt: string;
 }
 
 export interface ProjectDatabase {
@@ -209,6 +223,7 @@ export class Store {
           webhookSecret: p.webhookSecret ?? crypto.randomBytes(24).toString('hex'),
           database: p.database ?? null,
           githubInstallationId: p.githubInstallationId ?? null,
+          domains: p.domains ?? [],
           liveDeploymentId: p.liveDeploymentId ?? null,
           lastRemoteCommit: p.lastRemoteCommit ?? null,
         })),
@@ -389,6 +404,11 @@ export class Store {
     return this.db.projects.find((p) => p.slug === slug);
   }
 
+  /** Project that owns a VERIFIED custom domain (exact host name, lower case). */
+  static getProjectByDomain(name: string): Project | undefined {
+    return this.db.projects.find((p) => p.domains.some((d) => d.name === name && d.verifiedAt));
+  }
+
   static usedPorts(): Set<number> {
     return new Set(this.db.projects.map((p) => p.port));
   }
@@ -492,7 +512,7 @@ export function limitsFor(user: User | undefined): PlanLimits {
   const legacyProjects = Store.settings().maxProjectsPerUser ?? config.limits.maxProjectsPerUser;
   const base: PlanLimits = billingEnabled() && user
     ? PLANS[user.plan]
-    : { projects: legacyProjects, databases: 1000, memory: config.limits.memory, cpus: config.limits.cpus, sleepAfterMinutes: null };
+    : { projects: legacyProjects, databases: 1000, customDomains: 1000, memory: config.limits.memory, cpus: config.limits.cpus, sleepAfterMinutes: null };
   // Admins are never limited by plans; an admin-set project limit always wins.
   const admin = user?.role === 'admin';
   return {

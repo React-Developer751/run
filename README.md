@@ -186,13 +186,29 @@ Har successful Docker deploy ki image rakhi jati hai (latest 3, `limits.rollback
 
 Rollback ke baad auto-deploy use turant undo nahi karta: polling "aakhri dekhe gaye commit" se compare karta hai, isliye agla deploy **naye push** par hi hoga. Process mode mein rollback nahi hai (wahan images nahi bantin).
 
+## Custom domains (free SSL)
+
+Project → **Domains** tab → `www.myshop.com` add karo. User ko do DNS records dikhte hain (copy buttons ke saath):
+
+| Type | Name | Value | Kyun |
+|---|---|---|---|
+| TXT | `_hostx-challenge.www.myshop.com` | `hostx-verify=...` | Ownership proof: koi doosre ka domain apne project par nahi jod sakta |
+| CNAME | `www.myshop.com` | `<slug>.yourapps.app` | Traffic HostX par lana |
+
+Root domain (`myshop.com`) ke liye `HOSTX_PUBLIC_IP` set ho to A record dikhta hai, warna www ya ALIAS/flattening (Cloudflare) ki salah.
+
+- Engine pending domains ko har 5 min apne aap check karta hai (7 din tak); "Check now" button bhi hai. DNS check public resolvers (`HOSTX_DNS_SERVERS`, default 1.1.1.1, 8.8.8.8) se hota hai.
+- Verify hote hi proxy us Host ko project par bhejta hai. Ek verified domain sirf ek project par; doosre projects ke pending claims hat jaate hain.
+- **SSL:** Caddy ka *on-demand TLS*. Pehli visit par Let's Encrypt certificate banta hai, lekin sirf tab jab `GET /api/domains/check?domain=` 200 de (sirf verified custom domains aur maujooda app subdomains). Isse koi bhi random domains ke certificate mangwa kar Let's Encrypt limits khatam nahi kar sakta. Config: `deploy/Caddyfile` (global `on_demand_tls` + `https://` block). Server par port 80 aur 443 khule hone chahiye.
+- Plan limits: Free 1, Starter 3, Pro 10 domains (`HOSTX_*_DOMAINS`).
+
 ## Plans & billing (Razorpay)
 
-| Plan | Price | Projects | RAM / CPU per app | MongoDB | Sleep |
-|---|---|---|---|---|---|
-| Free | ₹0 | 2 | 256 MB / 0.25 | 1 | 15 min idle ke baad |
-| Starter | ₹299/mo | 5 | 512 MB / 0.5 | 3 | Kabhi nahi |
-| Pro | ₹999/mo | 15 | 1 GB / 1 | 10 | Kabhi nahi |
+| Plan | Price | Projects | RAM / CPU per app | MongoDB | Custom domains | Sleep |
+|---|---|---|---|---|---|---|
+| Free | ₹0 | 2 | 256 MB / 0.25 | 1 | 1 | 15 min idle ke baad |
+| Starter | ₹299/mo | 5 | 512 MB / 0.5 | 3 | 3 | Kabhi nahi |
+| Pro | ₹999/mo | 15 | 1 GB / 1 | 10 | 10 | Kabhi nahi |
 
 Sab env se badal sakte ho (`HOSTX_PRICE_STARTER`, `HOSTX_FREE_PROJECTS`, `HOSTX_PRO_MEMORY`, `HOSTX_FREE_SLEEP_MINUTES` ...; dekho `src/config/plans.ts`). **Billing tabhi on hoti hai jab Razorpay keys set hon.** Bina keys ke purana behaviour (HOSTX_MAX_PROJECTS, HOSTX_APP_MEMORY, koi sleep nahi) waisa hi rehta hai. Admins par plan limits nahi lagti.
 
@@ -241,7 +257,7 @@ Dashboard: `web/.env.local` mein `NEXT_PUBLIC_API_URL=http://localhost:4000` aur
 ## API
 
 `POST /api/auth/register` · `POST /api/auth/login` · `GET /api/auth/me` · `POST /api/auth/verify-email|resend-verification|forgot-password|reset-password`
-`GET /api/billing/plans` · `GET /api/billing` · `POST /api/billing/subscribe|cancel|webhook` · `GET|DELETE /api/github` · `GET /api/github/repos` · `GET /api/auth/github/callback` · `POST /api/github/webhook`
+`POST /api/projects/:id/domains` · `POST /api/projects/:id/domains/:name/verify` · `DELETE /api/projects/:id/domains/:name` · `GET /api/domains/check` (Caddy) · `GET /api/billing/plans` · `GET /api/billing` · `POST /api/billing/subscribe|cancel|webhook` · `GET|DELETE /api/github` · `GET /api/github/repos` · `GET /api/auth/github/callback` · `POST /api/github/webhook`
 `POST /api/scan` · `GET|POST /api/projects` · `GET|PATCH|DELETE /api/projects/:id`
 `POST /api/projects/:id/deploy|stop|start` · `POST /api/projects/:id/deployments/:did/rollback` · `GET /api/projects/:id/events` · `POST|DELETE /api/projects/:id/database` · `GET /api/projects/:id/deployments/:did/logs?after=N` · `GET /api/projects/:id/logs`
 

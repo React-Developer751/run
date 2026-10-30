@@ -51,9 +51,10 @@ const isServing = (p: Project) => p.status === 'live' || (p.status === 'deployin
 
 function resolveProject(hostHeader: string | undefined): Project | null {
   if (!hostHeader) return null;
-  const hostname = (hostHeader.split(':')[0] ?? '').toLowerCase();
+  const hostname = (hostHeader.split(':')[0] ?? '').toLowerCase().replace(/\.$/, '');
   const suffix = `.${config.baseDomain}`;
-  if (!hostname.endsWith(suffix)) return null;
+  // Anything outside the apps domain can only be a verified custom domain.
+  if (!hostname.endsWith(suffix)) return Store.getProjectByDomain(hostname) ?? null;
   const slug = hostname.slice(0, -suffix.length);
   if (!slug || slug.includes('.')) return null;
   return Store.getProjectBySlug(slug) ?? null;

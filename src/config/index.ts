@@ -129,6 +129,11 @@ export const config = {
     planIds: { starter: env.HOSTX_RAZORPAY_PLAN_STARTER ?? '', pro: env.HOSTX_RAZORPAY_PLAN_PRO ?? '' },
   },
 
+  // Custom domains: public IPv4 of this server, shown as the A record for apex domains (e.g. myshop.com).
+  publicIp: env.HOSTX_PUBLIC_IP || null,
+  // DNS servers used to verify custom domains (public resolvers see changes faster than a local cache).
+  dnsServers: (env.HOSTX_DNS_SERVERS ?? '1.1.1.1,8.8.8.8').split(',').map((s) => s.trim()).filter(Boolean),
+
   // Users' apps must not share a registrable domain with the dashboard/API (see checkDomains). Escape hatch for old setups.
   allowSharedDomain: env.HOSTX_ALLOW_SHARED_DOMAIN === 'true',
 

@@ -28,6 +28,7 @@ export interface Project {
   autoDeploy: boolean;
   /** Cloned through the HostX GitHub App (private repository support). */
   viaGitHubApp: boolean;
+  domains: CustomDomain[];
   /** Managed MongoDB add-on; the URI contains the password (owner-only). */
   database: { name: string; user: string; uri: string; createdAt: string } | null;
   webhook: { url: string; secret: string };
@@ -38,6 +39,18 @@ export interface Project {
   liveDeploymentId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CustomDomain {
+  name: string;
+  url: string;
+  verified: boolean;
+  verifiedAt: string | null;
+  /** Whether DNS points at HostX yet. */
+  dns: 'ok' | 'not-pointing' | 'unknown';
+  lastCheckedAt: string | null;
+  lastError: string | null;
+  records: Array<{ type: 'TXT' | 'CNAME' | 'A'; name: string; value: string }>;
 }
 
 export interface ProjectEvent {
@@ -95,6 +108,7 @@ export type PlanId = 'free' | 'starter' | 'pro';
 export interface PlanLimits {
   projects: number;
   databases: number;
+  customDomains: number;
   memory: string;
   cpus: string;
   sleepAfterMinutes: number | null;
@@ -111,7 +125,7 @@ export interface BillingInfo {
   enabled: boolean;
   plan: PlanId;
   limits: PlanLimits;
-  usage: { projects: number; databases: number };
+  usage: { projects: number; databases: number; customDomains: number };
   subscription: {
     plan: PlanId;
     status: 'created' | 'active' | 'pending' | 'cancelling' | 'cancelled' | 'halted';

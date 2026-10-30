@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BuildSettings } from '@/components/BuildSettings';
+import { DomainsPanel } from '@/components/DomainsPanel';
 import { EnvEditor, envFromRows, rowsFromEnv, type EnvRow } from '@/components/EnvEditor';
 import { Icon } from '@/components/Icon';
 import { LogViewer } from '@/components/LogViewer';
@@ -16,11 +17,12 @@ import type { BuildConfig, Deployment, Project, ProjectEvent } from '@/lib/types
 
 const EVENT_ICON: Record<ProjectEvent['kind'], string> = { crash: '🔴', restart: '🟠', recovered: '🟢', rollback: '↩️' };
 
-type Tab = 'deployments' | 'runtime' | 'env' | 'database' | 'settings';
+type Tab = 'deployments' | 'runtime' | 'env' | 'domains' | 'database' | 'settings';
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'deployments', label: 'Deployments' },
   { id: 'runtime', label: 'Runtime logs' },
   { id: 'env', label: 'Environment' },
+  { id: 'domains', label: 'Domains' },
   { id: 'database', label: 'Database' },
   { id: 'settings', label: 'Settings' },
 ];
@@ -343,6 +345,8 @@ export default function ProjectPage() {
             </div>
           </div>
         )}
+
+        {tab === 'domains' && <DomainsPanel project={project} onChange={setProject} flash={flash} />}
 
         {tab === 'database' && (
           <div className="card stack" style={{ maxWidth: 760 }}>

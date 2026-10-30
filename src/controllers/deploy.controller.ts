@@ -18,6 +18,7 @@ import { DeployService } from '../services/deploy.service.js';
 import { GitHubService } from '../services/github.service.js';
 import { DeployLog } from '../services/log.service.js';
 import { MongoService } from '../services/mongo.service.js';
+import { DomainService } from '../services/domain.service.js';
 import { billingEnabled } from '../config/plans.js';
 import { RunnerService } from '../services/runner.service.js';
 import { Store, type Deployment, type Project } from '../services/store.service.js';
@@ -36,6 +37,22 @@ export const toPublicProject = (p: Project) => ({
   env: p.env,
   autoDeploy: p.autoDeploy,
   viaGitHubApp: p.githubInstallationId !== null,
+  domains: p.domains.map((d) => ({
+    name: d.name,
+    url: `https://${d.name}`,
+    verified: d.verifiedAt !== null,
+    verifiedAt: d.verifiedAt,
+    dns: d.dns,
+    lastCheckedAt: d.lastCheckedAt,
+    lastError: d.lastError,
+    // DNS records the owner has to create.
+    records: [
+      { type: 'TXT', name: DomainService.challengeName(d.name), value: d.token },
+      d.name.split('.').length === 2 && config.publicIp
+        ? { type: 'A', name: d.name, value: config.publicIp }
+        : { type: 'CNAME', name: d.name, value: DomainService.target(p) },
+    ],
+  })),
   // Owner-only view (like env): the connection string includes the password.
   database: p.database ? { name: p.database.name, user: p.database.user, uri: MongoService.uri(p.database), createdAt: p.database.createdAt } : null,
   webhook: { url: `${config.apiPublicUrl}/api/webhooks/github/${p.id}`, secret: p.webhookSecret },
@@ -77,6 +94,7 @@ function ownedProject(ctx: Ctx): Project {
 }
 
 let activeScans = 0;
+const domainLimiter = new RateLimiter(20, 60 * 1000, 'Too many checks. DNS changes take a few minutes anyway.');
 // Builds burn CPU: cap how often one user can start them (auto-deploys on new commits are exempt).
 const deployLimiter = new RateLimiter(30, 60 * 60 * 1000, 'You are deploying too often. Please wait a while before starting another build.');
 
@@ -238,6 +256,40 @@ export class DeployController {
       throw new HttpError(502, 'Could not delete the database. Please try again.');
     }
     return { project: toPublicProject(Store.getProject(project.id) ?? project) };
+  }
+
+  static async addDomain(ctx: Ctx) {
+    AuthService.requireVerified(ctx.user);
+    const project = ownedProject(ctx);
+    const body = await ctx.json();
+    const updated = await DomainService.add(project, body.domain);
+    ctx.status = 201;
+    return { project: toPublicProject(updated) };
+  }
+
+  static async verifyDomain(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    domainLimiter.hit(project.id);
+    return { project: toPublicProject(await DomainService.verify(project, (ctx.params.name ?? '').toLowerCase())) };
+  }
+
+  static async removeDomain(ctx: Ctx) {
+    const project = ownedProject(ctx);
+    return { project: toPublicProject(await DomainService.remove(project, (ctx.params.name ?? '').toLowerCase())) };
+  }
+
+  /**
+   * Caddy's on-demand TLS "ask" endpoint: 200 = issue a certificate for this host name, anything else = refuse.
+   * Only verified custom domains (and the platform's own app hosts) qualify, so nobody can make us request
+   * certificates for arbitrary names and burn the Let's Encrypt rate limits.
+   */
+  static checkDomain(ctx: Ctx) {
+    const name = (ctx.query.get('domain') ?? '').toLowerCase().replace(/\.$/, '');
+    const base = config.baseDomain;
+    const slug = name.endsWith(`.${base}`) ? name.slice(0, -base.length - 1) : null;
+    const ok = (slug !== null && !slug.includes('.') && Store.getProjectBySlug(slug) !== undefined) || Store.getProjectByDomain(name) !== undefined;
+    if (!ok) throw new HttpError(404, 'Unknown domain');
+    return { ok: true };
   }
 
   /** Build log of one deployment. Poll with ?after=<next> to receive only new lines. */

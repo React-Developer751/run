@@ -22,6 +22,10 @@ export function registerDeployRoutes(router: Router): void {
   router.get('/api/projects/:id/deployments/:did/logs', DeployController.deploymentLogs);
   router.post('/api/projects/:id/deployments/:did/rollback', DeployController.rollback);
   router.get('/api/projects/:id/events', DeployController.events);
+  router.post('/api/projects/:id/domains', DeployController.addDomain);
+  router.post('/api/projects/:id/domains/:name/verify', DeployController.verifyDomain);
+  router.delete('/api/projects/:id/domains/:name', DeployController.removeDomain);
+  router.get('/api/domains/check', DeployController.checkDomain);
   router.post('/api/webhooks/github/:id', WebhookController.github);
   router.get('/api/projects/:id/logs', DeployController.runtimeLogs);
 

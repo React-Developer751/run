@@ -5,6 +5,14 @@
 # cannot get your main domain blocklisted. Once live, also submit yourapps.app to https://publicsuffix.org.
 # Wildcard TLS needs a DNS-01 capable Caddy build (e.g. caddy-dns/cloudflare). Replace both domains.
 
+{
+	# Custom domains (www.myshop.com): Caddy gets a Let's Encrypt certificate the first time a domain is visited,
+	# but only after HostX confirms it is a verified custom domain of some project.
+	on_demand_tls {
+		ask http://127.0.0.1:4000/api/domains/check
+	}
+}
+
 app.yourdomain.com {
 	reverse_proxy 127.0.0.1:3000
 }
@@ -18,5 +26,13 @@ yourapps.app, *.yourapps.app {
 		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 	}
 	header Strict-Transport-Security "max-age=31536000"
+	reverse_proxy 127.0.0.1:8080
+}
+
+# Every other host name: users' custom domains.
+https:// {
+	tls {
+		on_demand
+	}
 	reverse_proxy 127.0.0.1:8080
 }

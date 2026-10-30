@@ -149,6 +149,7 @@ export class DeployService {
       containerName: null,
       database: null,
       githubInstallationId: input.githubInstallationId,
+      domains: [],
       liveDeploymentId: null,
       lastRemoteCommit: null,
       currentDeploymentId: null,

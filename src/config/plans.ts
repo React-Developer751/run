@@ -8,6 +8,8 @@ export interface PlanLimits {
   projects: number;
   /** MongoDB add-on databases. */
   databases: number;
+  /** Custom domains across all of the user's projects. */
+  customDomains: number;
   /** Docker memory limit per app, e.g. "512m". */
   memory: string;
   /** Docker CPU share per app, e.g. "0.5". */
@@ -33,6 +35,7 @@ export const PLANS: Record<PlanId, Plan> = {
     priceInr: 0,
     projects: n(env.HOSTX_FREE_PROJECTS, 2),
     databases: n(env.HOSTX_FREE_DATABASES, 1),
+    customDomains: n(env.HOSTX_FREE_DOMAINS, 1),
     memory: env.HOSTX_FREE_MEMORY ?? '256m',
     cpus: env.HOSTX_FREE_CPUS ?? '0.25',
     sleepAfterMinutes: n(env.HOSTX_FREE_SLEEP_MINUTES, 15),
@@ -43,6 +46,7 @@ export const PLANS: Record<PlanId, Plan> = {
     priceInr: n(env.HOSTX_PRICE_STARTER, 299),
     projects: n(env.HOSTX_STARTER_PROJECTS, 5),
     databases: n(env.HOSTX_STARTER_DATABASES, 3),
+    customDomains: n(env.HOSTX_STARTER_DOMAINS, 3),
     memory: env.HOSTX_STARTER_MEMORY ?? '512m',
     cpus: env.HOSTX_STARTER_CPUS ?? '0.5',
     sleepAfterMinutes: null,
@@ -53,6 +57,7 @@ export const PLANS: Record<PlanId, Plan> = {
     priceInr: n(env.HOSTX_PRICE_PRO, 999),
     projects: n(env.HOSTX_PRO_PROJECTS, 15),
     databases: n(env.HOSTX_PRO_DATABASES, 10),
+    customDomains: n(env.HOSTX_PRO_DOMAINS, 10),
     memory: env.HOSTX_PRO_MEMORY ?? '1g',
     cpus: env.HOSTX_PRO_CPUS ?? '1',
     sleepAfterMinutes: null,

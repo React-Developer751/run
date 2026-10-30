@@ -9,6 +9,7 @@ function features(p: Plan): string[] {
     `${p.projects} project${p.projects === 1 ? '' : 's'} (sites + services)`,
     `${memoryLabel(p.memory)} RAM · ${p.cpus} CPU per app`,
     `${p.databases} MongoDB database${p.databases === 1 ? '' : 's'}`,
+    `${p.customDomains} custom domain${p.customDomains === 1 ? '' : 's'} with free SSL`,
     p.sleepAfterMinutes === null ? 'Always on — never sleeps' : `Sleeps after ${p.sleepAfterMinutes} min idle, wakes on the next visit`,
     'Auto-deploy from GitHub, private repos',
     'Free HTTPS subdomain',
