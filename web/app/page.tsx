@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Icon, type IconName } from '@/components/Icon';
 import { SiteFooter } from '@/components/SiteFooter';
-import { getSiteName } from '@/lib/brand';
+import { getAppUrlTemplate, getSiteName } from '@/lib/brand';
 import { SITE_URL, brandSlug, pageMetadata, siteTitle } from '@/lib/site';
 import { Nav } from '@/components/Nav';
 import { Testimonials } from '@/components/Testimonials';
@@ -53,12 +53,12 @@ const FEATURES: Array<{ icon: IconName; title: string; text: string; span: strin
 const STACK = ['React', 'Vite', 'Create React App', 'Vue', 'Svelte', 'Next.js', 'Express', 'Fastify', 'NestJS', 'Socket.IO', 'Mongoose', 'Prisma'];
 
 // Illustrative dashboard snapshot (not live data): what a typical MERN account looks like after a week.
-const preview = (slug: string): Array<{ name: string; url: string; status: 'Live' | 'Deploying' | 'Paused'; type: 'Web Service' | 'Static Site'; runtime: string; branch: string; at: string }> => [
-  { name: 'shopkart-api', url: `shopkart-api.${slug}.app`, status: 'Live', type: 'Web Service', runtime: 'Express · Node 22', branch: 'main', at: '3 min ago' },
+const preview = (host: (app: string) => string): Array<{ name: string; url: string; status: 'Live' | 'Deploying' | 'Paused'; type: 'Web Service' | 'Static Site'; runtime: string; branch: string; at: string }> => [
+  { name: 'shopkart-api', url: host('shopkart-api'), status: 'Live', type: 'Web Service', runtime: 'Express · Node 22', branch: 'main', at: '3 min ago' },
   { name: 'shopkart-web', url: 'shopkart.in', status: 'Live', type: 'Static Site', runtime: 'Vite + React', branch: 'main', at: '3 min ago' },
-  { name: 'campus-chat', url: `campus-chat.${slug}.app`, status: 'Deploying', type: 'Web Service', runtime: 'Socket.IO · Node 20', branch: 'dev', at: 'just now' },
-  { name: 'portfolio', url: `portfolio-ankit.${slug}.app`, status: 'Live', type: 'Static Site', runtime: 'Vite', branch: 'main', at: '2 days ago' },
-  { name: 'expense-tracker-api', url: `expense-api.${slug}.app`, status: 'Paused', type: 'Web Service', runtime: 'Express · Node 22', branch: 'main', at: '9 days ago' },
+  { name: 'campus-chat', url: host('campus-chat'), status: 'Deploying', type: 'Web Service', runtime: 'Socket.IO · Node 20', branch: 'dev', at: 'just now' },
+  { name: 'portfolio', url: host('portfolio-ankit'), status: 'Live', type: 'Static Site', runtime: 'Vite', branch: 'main', at: '2 days ago' },
+  { name: 'expense-tracker-api', url: host('expense-api'), status: 'Paused', type: 'Web Service', runtime: 'Express · Node 22', branch: 'main', at: '9 days ago' },
 ];
 
 const EXAMPLES: Array<{ title: string; repo: string; tree: string[]; result: string[] }> = [
@@ -98,9 +98,12 @@ const faqLd = (name: string) => ({
 });
 
 export default async function Landing() {
-  const name = await getSiteName();
+  const [name, urlTemplate] = await Promise.all([getSiteName(), getAppUrlTemplate()]);
   const questions = faq(name);
   const slug = brandSlug(name);
+  // Example app addresses use this server's real pattern, e.g. https://shop.apps.deploykaro.com
+  const appUrl = (app: string) => urlTemplate.replace('{slug}', app);
+  const appHost = (app: string) => appUrl(app).replace(/^https?:\/\//, '');
   return (
     <>
       <Nav variant="site" />
@@ -138,7 +141,7 @@ export default async function Landing() {
               <div className="t-line" style={{ animationDelay: '2.6s' }}><span className="d">[{slug}]</span> npm install <span className="d">· 167 packages</span></div>
               <div className="t-line" style={{ animationDelay: '3.4s' }}><span className="d">[{slug}]</span> npm run build <span className="d">· ✓ 33 modules transformed</span></div>
               <div className="t-line" style={{ animationDelay: '4.2s' }}><span className="d">[{slug}]</span> Starting in isolated container <span className="d">· 512 MB</span></div>
-              <div className="t-line" style={{ animationDelay: '5.0s' }}><span className="ok">✓ Live</span> https://my-portfolio.{slug}.app</div>
+              <div className="t-line" style={{ animationDelay: '5.0s' }}><span className="ok">✓ Live</span> {appUrl('my-portfolio')}</div>
             </div>
           </div>
         </div>
@@ -203,12 +206,12 @@ export default async function Landing() {
             <p>Status, runtime, branch and last deploy at a glance. Filter by active, paused, archived or failed.</p>
           </div>
           <div className="preview-window" aria-label="Example dashboard (illustration)">
-            <div className="terminal-bar"><i /><i /><i /><span>{slug}.app/dashboard · example</span></div>
+            <div className="terminal-bar"><i /><i /><i /><span>{SITE_URL.replace(/^https?:\/\//, '')}/dashboard · example</span></div>
             <div className="table-card">
               <table className="table">
                 <thead><tr><th>Service name</th><th>Status</th><th>Type</th><th>Runtime</th><th>Branch</th><th>Updated</th></tr></thead>
                 <tbody>
-                  {preview(slug).map((r) => (
+                  {preview(appHost).map((r) => (
                     <tr key={r.name}>
                       <td><div className="cell-main"><b>{r.name}</b><small className="mono">{r.url}</small></div></td>
                       <td><span className={`badge ${r.status === 'Live' ? 'badge-live' : r.status === 'Deploying' ? 'badge-busy' : 'badge-idle'}`}>{r.status}</span></td>

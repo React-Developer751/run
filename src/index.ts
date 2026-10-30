@@ -24,6 +24,13 @@ async function main(): Promise<void> {
   // The server env template marks every value to fill in with FILL_ME: never start production half-configured.
   const unfilled = Object.entries(process.env).filter(([k, v]) => k.startsWith('HOSTX_') && v?.includes('FILL_ME')).map(([k]) => k);
   if (config.isProduction && unfilled.length) throw new Error(`Fill in (or comment out) these settings in .env first: ${unfilled.join(', ')}`);
+  if (config.isProduction && config.baseDomainAuto) {
+    logger.warn(
+      config.baseDomain === 'localhost'
+        ? 'HOSTX_BASE_DOMAIN is not set and the dashboard URL has no domain: app URLs will not work. Set HOSTX_BASE_DOMAIN (e.g. yourapps.app).'
+        : `Apps domain derived from the dashboard: ${projectUrl('<app>')}. Point *.${config.baseDomain} to this server. A separate domain (HOSTX_BASE_DOMAIN=yourapps.app, like onrender.com) is safer.`,
+    );
+  }
   const domainProblem = sharedDomainProblem();
   if (domainProblem) {
     if (config.isProduction && !config.allowSharedDomain) throw new Error(domainProblem);

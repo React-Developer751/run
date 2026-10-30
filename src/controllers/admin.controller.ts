@@ -437,6 +437,10 @@ function effectiveSettings() {
   return {
     siteName: siteName(),
     defaultSiteName: DEFAULT_SITE_NAME,
+    // Where users' apps live (<slug>.<appsDomain>); set by HOSTX_BASE_DOMAIN or derived from the dashboard domain.
+    appUrlTemplate: projectUrl('{name}'),
+    appsDomain: config.baseDomain,
+    appsDomainAuto: config.baseDomainAuto,
     allowSignup: s.allowSignup ?? config.allowSignup,
     maxProjectsPerUser: s.maxProjectsPerUser ?? config.limits.maxProjectsPerUser,
     billingEnabled: billingEnabled(),

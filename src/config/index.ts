@@ -26,8 +26,33 @@ function githubPrivateKey(): string | null {
   }
   return null;
 }
-const publicScheme: 'http' | 'https' = env.HOSTX_PUBLIC_SCHEME === 'https' ? 'https' : 'http';
-const publicPort = num(env.HOSTX_PUBLIC_PORT, proxyPort);
+const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'edu', 'ac', 'ltd', 'plc', 'gen', 'firm', 'ind', 'nic', 'res']);
+const isProduction = env.NODE_ENV === 'production';
+// Production sits behind Caddy/nginx with TLS: https on 443 unless set otherwise. Development: http on the proxy port.
+const publicScheme: 'http' | 'https' = (env.HOSTX_PUBLIC_SCHEME ?? (isProduction ? 'https' : 'http')) === 'https' ? 'https' : 'http';
+const publicPort = num(env.HOSTX_PUBLIC_PORT, isProduction ? (publicScheme === 'https' ? 443 : 80) : proxyPort);
+
+const hostOf = (url: string | undefined): string | null => {
+  try {
+    return url ? new URL(url).hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+};
+const isIpOrLocal = (host: string) => host === 'localhost' || host.endsWith('.localhost') || /^[\d.]+$/.test(host) || host.includes(':');
+
+/**
+ * Apps domain (Render's "onrender.com"): every app is <slug>.<appsDomain>.
+ * HOSTX_BASE_DOMAIN wins (best: a separate domain such as yourapps.app). Without it, production derives one from the
+ * domain the dashboard is live on: app.deploykaro.com -> apps.deploykaro.com, so apps are <slug>.apps.deploykaro.com.
+ */
+function appsDomain(): { domain: string; auto: boolean } {
+  if (env.HOSTX_BASE_DOMAIN) return { domain: env.HOSTX_BASE_DOMAIN.toLowerCase().replace(/^\*\.|\.$/g, ''), auto: false };
+  const host = hostOf(env.HOSTX_DASHBOARD_URL ?? webOrigins[0]);
+  if (!isProduction || !host || isIpOrLocal(host)) return { domain: 'localhost', auto: !!isProduction };
+  return { domain: `apps.${siteOf(host)}`, auto: true };
+}
+const apps = appsDomain();
 
 export const config = {
   rootDir: root,
@@ -51,7 +76,9 @@ export const config = {
   proxyHost: env.HOSTX_PROXY_HOST || undefined,
 
   // Apps are served on <slug>.<baseDomain>. "localhost" works out of the box in modern browsers.
-  baseDomain: (env.HOSTX_BASE_DOMAIN ?? 'localhost').toLowerCase(),
+  baseDomain: apps.domain,
+  /** true when the apps domain was derived from the dashboard's domain (HOSTX_BASE_DOMAIN not set). */
+  baseDomainAuto: apps.auto,
   publicScheme,
   publicPort,
 
@@ -82,7 +109,7 @@ export const config = {
   // auto | docker | process
   runner: (env.HOSTX_RUNNER ?? 'auto').toLowerCase(),
 
-  isProduction: env.NODE_ENV === 'production',
+  isProduction,
   allowUnsafeProcess: env.HOSTX_ALLOW_UNSAFE_PROCESS === '1',
   // Set true ONLY behind your own reverse proxy (Caddy/nginx): then the client IP is read from X-Forwarded-For.
   trustProxy: env.HOSTX_TRUST_PROXY === 'true',
@@ -156,7 +183,6 @@ export const config = {
 
 } as const;
 
-const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'edu', 'ac', 'ltd', 'plc', 'gen', 'firm', 'ind', 'nic', 'res']);
 
 /** Rough registrable domain ("eTLD+1") without the public suffix list: a.b.example.co.uk -> example.co.uk. */
 export function siteOf(host: string): string {
@@ -174,6 +200,8 @@ export function siteOf(host: string): string {
  */
 export function sharedDomainProblem(): string | null {
   if (config.baseDomain === 'localhost' || config.baseDomain.endsWith('.localhost')) return null;
+  // Derived apps.<domain>: accepted (auth cookies are __Host- and every write is Origin-checked); index.ts warns.
+  if (config.baseDomainAuto) return null;
   const appsSite = siteOf(config.baseDomain);
   const controlHosts = [...config.webOrigins, config.apiPublicUrl].flatMap((u) => {
     try {

@@ -21,6 +21,20 @@ export async function getSiteName(): Promise<string> {
   }
 }
 
+/**
+ * How app URLs look on this server, e.g. "https://{slug}.apps.deploykaro.com" (Render: {slug}.onrender.com).
+ * Same cache as the name. Falls back to the local development pattern.
+ */
+export async function getAppUrlTemplate(): Promise<string> {
+  try {
+    const r = await fetch(`${API}/api/health`, { next: { revalidate: 60, tags: [SITE_NAME_TAG] } });
+    const t = r.ok ? ((await r.json()) as { urlTemplate?: string }).urlTemplate : undefined;
+    return t && t.includes('{slug}') ? t : 'http://{slug}.localhost:8080';
+  } catch {
+    return 'http://{slug}.localhost:8080';
+  }
+}
+
 /** The current name straight from the engine, bypassing the cache. */
 export async function freshSiteName(): Promise<string | null> {
   try {

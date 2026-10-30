@@ -97,6 +97,27 @@ export default function AdminSettings() {
       </div>
 
       <div className="card stack">
+        <div>
+          <h3 className="card-title">App URLs</h3>
+          <p className="muted" style={{ marginTop: 6, fontSize: 14 }}>
+            Every deployed project gets an address on the apps domain, like Render&apos;s <span className="mono">name.onrender.com</span>.
+            A name that is already taken gets a short suffix (<span className="mono">shop-x7k2</span>). Users can also add their own domains.
+          </p>
+        </div>
+        <div className="mono notice-box" style={{ fontSize: 14 }}>{settings.appUrlTemplate}</div>
+        {settings.appsDomain === 'localhost' ? (
+          <span className="hint">Local development address. On the live server set <span className="mono">HOSTX_BASE_DOMAIN</span> (or a real dashboard URL) and restart.</span>
+        ) : settings.appsDomainAuto ? (
+          <span className="hint">
+            Taken from the domain this dashboard runs on. Point <span className="mono">*.{settings.appsDomain}</span> to the server. For extra safety use a separate
+            domain like Render does: set <span className="mono">HOSTX_BASE_DOMAIN=yourapps.app</span> in the server <span className="mono">.env</span> and restart; every project URL changes with it.
+          </span>
+        ) : (
+          <span className="hint">Set by <span className="mono">HOSTX_BASE_DOMAIN</span> in the server <span className="mono">.env</span>. Changing it (and restarting) moves every project URL to the new domain.</span>
+        )}
+      </div>
+
+      <div className="card stack">
         <h3 className="card-title">Registration</h3>
         <label className="check">
           <input type="checkbox" checked={settings.allowSignup} disabled={busy} onChange={(e) => save({ allowSignup: e.target.checked }, e.target.checked ? 'Sign-ups opened' : 'Sign-ups closed')} />

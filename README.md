@@ -138,7 +138,11 @@ Render ki tarah (`render.com` vs `onrender.com`) do domains use karo:
 | `app.yourdomain.com`, `api.yourdomain.com` | Dashboard + API (aapka trusted code) |
 | `<slug>.yourapps.app` | Users ki apps (`HOSTX_BASE_DOMAIN=yourapps.app`) |
 
-Kyun: same registrable domain par user ki app dashboard ke liye cookies set kar sakti hai, aur ek phishing app aapka poora main domain Google Safe Browsing / spam lists mein block karwa sakti hai. Production mein engine start hi nahi hota agar dono domain same hon (`HOSTX_ALLOW_SHARED_DOMAIN=true` se override). `yourapps.app` aur `www.yourapps.app` dashboard par redirect hote hain. Live hone ke baad apps domain ko <https://publicsuffix.org> par submit karo (browsers phir har app ko alag site maanenge). Caddy config: `deploy/Caddyfile`.
+**Project URL kaise banta hai:** project ka naam → slug → `https://<slug>.<apps domain>` (jaise Render par `name.onrender.com`). Naam pehle se liya ho to 4-character suffix lagta hai (`shop-x7k2`). URL save nahi hota, har baar apps domain se banta hai, isliye domain badalte hi saare projects ke URL apne aap naye domain par aa jaate hain. Admin → Settings → **App URLs** mein abhi ka pattern dikhta hai.
+
+**`HOSTX_BASE_DOMAIN` set nahi kiya?** Production mein engine apne aap dashboard ke domain se apps domain bana leta hai: dashboard `app.deploykaro.com` → apps `<slug>.apps.deploykaro.com` (DNS: `*.apps.deploykaro.com` → server IP, Caddy mein bhi wahi). Ye chal jaata hai (login cookies `__Host-` hain aur har request ka Origin check hota hai), lekin sabse safe Render jaisa alag domain hi hai. Local par hamesha `http://<slug>.localhost:8080`.
+
+Kyun: same registrable domain par user ki app dashboard ke liye cookies set kar sakti hai, aur ek phishing app aapka poora main domain Google Safe Browsing / spam lists mein block karwa sakti hai. Production mein agar `HOSTX_BASE_DOMAIN` khud dashboard wale domain par set karo to engine start nahi hota (`HOSTX_ALLOW_SHARED_DOMAIN=true` se override). `yourapps.app` aur `www.yourapps.app` dashboard par redirect hote hain. Live hone ke baad apps domain ko <https://publicsuffix.org> par submit karo (browsers phir har app ko alag site maanenge). Caddy config: `deploy/Caddyfile`.
 
 ## MongoDB (Atlas)
 

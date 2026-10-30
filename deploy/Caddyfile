@@ -4,6 +4,7 @@
 # Keeping apps on their own domain means they cannot set cookies for the dashboard, and one phishing app
 # cannot get your main domain blocklisted. Once live, also submit yourapps.app to https://publicsuffix.org.
 # Wildcard TLS needs a DNS-01 capable Caddy build (e.g. caddy-dns/cloudflare). Replace both domains.
+# Without HOSTX_BASE_DOMAIN the apps domain is apps.<dashboard domain>: use "apps.yourdomain.com, *.apps.yourdomain.com" below.
 
 {
 	# Custom domains (www.myshop.com): Caddy gets a Let's Encrypt certificate the first time a domain is visited,

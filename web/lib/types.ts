@@ -234,6 +234,10 @@ export interface PlatformSettings {
   /** Website / platform name shown everywhere, and the built-in default it falls back to. */
   siteName: string;
   defaultSiteName: string;
+  /** e.g. https://{name}.apps.deploykaro.com */
+  appUrlTemplate: string;
+  appsDomain: string;
+  appsDomainAuto: boolean;
   allowSignup: boolean;
   maxProjectsPerUser: number;
   billingEnabled: boolean;
