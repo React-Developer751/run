@@ -108,6 +108,12 @@ export const config = {
     maxProjectsPerUser: num(env.HOSTX_MAX_PROJECTS, 5),
     maxConcurrentBuilds: num(env.HOSTX_MAX_BUILDS, 2),
     buildTimeoutMs: 10 * 60 * 1000,
+    // Install + build of user code runs in a sandbox container with these hard limits (Docker mode).
+    buildMemory: env.HOSTX_BUILD_MEMORY ?? '1g',
+    buildCpus: env.HOSTX_BUILD_CPUS ?? '1',
+    buildPids: '512',
+    // A build whose folder (including node_modules) grows beyond this fails instead of filling the disk.
+    buildMaxDiskMb: num(env.HOSTX_BUILD_MAX_DISK_MB, 3072),
     cloneTimeoutMs: 2 * 60 * 1000,
     startTimeoutMs: 60 * 1000,
     deploymentsKept: 15,

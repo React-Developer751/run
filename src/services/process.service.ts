@@ -52,7 +52,7 @@ export class ProcessRunner implements Runner {
     const opts = { cwd: srcDir, env: buildEnv, onLine: log, timeoutMs: config.limits.buildTimeoutMs };
 
     if (detection.hasPackage) {
-      const install = installCommand(detection.packageManager).replace('corepack enable && ', 'corepack ');
+      const install = installCommand(detection.packageManager);
       log(`[hostx] ${install}`);
       await run('sh', ['-c', install], opts);
     }

@@ -59,6 +59,8 @@ Static sites (Vite/CRA): Docker mode mein nginx container; Process mode mein bui
 
 **Build details:** Node.js version `package.json` ke `engines.node` se (18/20/22/24, default **22**). Lockfile se package manager: `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn (corepack), warna npm.
 
+**Sandboxed builds (Docker):** user ka code (`npm install`, postinstall scripts, build command) kabhi `docker build` ke andar nahi chalta (BuildKit par memory limit lag hi nahi sakti). Wo ek throwaway `docker run` container mein chalta hai: `HOSTX_BUILD_MEMORY` (1g, bina swap), `HOSTX_BUILD_CPUS` (1), max 512 processes, `--cap-drop=ALL`, `no-new-privileges`, non-root user, 10 min timeout (timeout par container bhi hata diya jata hai). Phir `docker build` sirf taiyaar folder COPY karta hai. Memory khatam ho to saaf "ran out of memory" error. Build folder `HOSTX_BUILD_MAX_DISK_MB` (3072) se bada ho to deploy fail, disk nahi bharti. Bonus: env vars ab image history mein build-args ki tarah save nahi hote.
+
 **Zero-downtime deploys (Docker):** har deploy ka apna image tag (`hostx-<id>:<version>`) aur container (`hostx-<id>-<version>`) naye port pe start hota hai. Health check pass hone ke baad hi proxy naye version pe switch karta hai, phir purana container + image delete hota hai (dangling images aur 7 din purana build cache bhi prune). Naya version fail ho to purana chalta rehta hai. Container logs `10m × 3` files tak capped hain.
 
 ## Security
@@ -77,7 +79,6 @@ Static sites (Vite/CRA): Docker mode mein nginx container; Process mode mein bui
 **Known limits / accepted risks:**
 
 - Docker shares the host kernel. For untrusted public users add gVisor/Sysbox or run HostX on a throwaway VM.
-- `docker build` (npm install of user code) is not memory-capped; it has a 10-minute timeout. On a small VPS keep signups closed.
 - Auth cookies are `SameSite=Lax`, so the dashboard and the API must share one registrable domain (e.g. `app.example.com` + `api.example.com`). Users' apps live on sibling subdomains, which is why every state-changing request is also checked against the dashboard `Origin`.
 - No 2FA yet; admin sees every user's build logs. Legal pages are templates: have them reviewed by a lawyer.
 - SQLite database: one engine process per server (the engine also owns Docker and ports on that machine, so this is by design).
@@ -275,7 +276,9 @@ Purana live version tab tak chalta rehta hai jab tak naya deploy successful na h
 | `HOSTX_MAX_PROJECTS` | `5` | Per-user project limit |
 | `HOSTX_POLL_SECONDS` | `60` | Auto-deploy polling interval (`0` = off) |
 | `HOSTX_API_PUBLIC_URL` | `http://localhost:4000` | Webhook URL jo dashboard dikhata hai |
-| `HOSTX_APP_MEMORY` / `HOSTX_APP_CPUS` | `300m` / `0.5` | Docker limits |
+| `HOSTX_APP_MEMORY` / `HOSTX_APP_CPUS` | `300m` / `0.5` | Docker limits (billing off) |
+| `HOSTX_BUILD_MEMORY` / `HOSTX_BUILD_CPUS` | `1g` / `1` | Har build sandbox ki limit (`HOSTX_MAX_BUILDS`=2 ek saath) |
+| `HOSTX_BUILD_MAX_DISK_MB` | `3072` | Build folder ka max size |
 
 Dashboard: `web/.env.local` mein `NEXT_PUBLIC_API_URL=http://localhost:4000` aur `NEXT_PUBLIC_SITE_URL=http://localhost:3000` (dono build time par bake hote hain).
 

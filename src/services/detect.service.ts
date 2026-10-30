@@ -47,8 +47,9 @@ export function nodeMajorFor(spec: string | undefined): string {
 
 /** Shell command that installs dependencies with the package manager the repo actually uses. */
 export function installCommand(pm: PackageManager): string {
-  if (pm === 'yarn') return 'corepack enable && yarn install';
-  if (pm === 'pnpm') return 'corepack enable && pnpm install';
+  // `corepack yarn` (not `corepack enable`) works without root: the build sandbox runs as an unprivileged user.
+  if (pm === 'yarn') return 'corepack yarn install';
+  if (pm === 'pnpm') return 'corepack pnpm install';
   return 'npm install --no-audit --no-fund';
 }
 

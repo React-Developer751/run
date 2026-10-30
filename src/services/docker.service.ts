@@ -18,8 +18,6 @@ const containerName = (p: Project) => p.containerName ?? `hostx-${p.id}`;
 export const networkName = (p: Project) => `hostx-net-${p.id}`;
 const imageName = (p: Project, version: string) => `hostx-${p.id}:${version}`;
 
-const LOCKFILES = { npm: 'package*.json', yarn: 'package.json yarn.lock*', pnpm: 'package.json pnpm-lock.yaml*' } as const;
-
 // SPA-friendly static server: unknown paths fall back to index.html, hashed assets are cached.
 const NGINX_CONFIG = `server {
   listen 80;
@@ -32,43 +30,35 @@ const NGINX_CONFIG = `server {
 }
 `;
 
-function dockerfileFor(detection: Detection, envKeys: string[]): string {
-  const args = envKeys.map((k) => `ARG ${k}`).join('\n');
-  const install = detection.hasPackage
-    ? `COPY ${LOCKFILES[detection.packageManager]} ./\nRUN ${JSON.stringify(['sh', '-c', installCommand(detection.packageManager)])}`
-    : '';
-  const node = `node:${/^\d+$/.test(detection.nodeVersion) ? detection.nodeVersion : '22'}-alpine`;
-  // Exec-form JSON keeps the user's command on one Dockerfile line, whatever characters it contains.
-  const build = detection.buildCommand ? `RUN ${JSON.stringify(['sh', '-c', detection.buildCommand])}` : '';
+const OUTPUT_CANDIDATES = ['dist', 'build', 'out', 'public'];
+const nodeImage = (d: Detection) => `node:${/^\d+$/.test(d.nodeVersion) ? d.nodeVersion : '22'}-alpine`;
 
+/**
+ * Runtime image. It only COPIES the folder the sandbox already built: no user code runs during `docker build`,
+ * which (with BuildKit) cannot be memory-limited. Env vars are not build args, so they never land in image history.
+ */
+function dockerfileFor(detection: Detection, outputDir: string): string {
   if (detection.kind === 'static') {
-    return `FROM ${node} AS build
-WORKDIR /app
-${install}
-COPY . .
-${args}
-${build}
-
-FROM nginx:alpine
+    return `FROM nginx:alpine
 COPY ${NGINX_CONF} /etc/nginx/conf.d/default.conf
-COPY --from=build /app/${detection.outputDir} /usr/share/nginx/html
+COPY ${JSON.stringify([outputDir === '.' ? './' : `${outputDir}/`, '/usr/share/nginx/html/'])}
 EXPOSE 80
 `;
   }
-
-  const cmd = JSON.stringify(['sh', '-c', detection.startCommand]);
-  return `FROM ${node}
+  return `FROM ${nodeImage(detection)}
 WORKDIR /app
-${install}
-COPY . .
-${args}
-${build}
-RUN chown -R node:node /app
+COPY --chown=node:node . .
 USER node
 ENV NODE_ENV=production PORT=3000
 EXPOSE 3000
-CMD ${cmd}
+CMD ${JSON.stringify(['sh', '-c', detection.startCommand])}
 `;
+}
+
+/** Size of a folder in MB (du is fast and does not follow symlinks). */
+async function folderMb(dir: string): Promise<number> {
+  const { stdout } = await exec('du', ['-sk', dir]).catch(() => ({ stdout: '0' }));
+  return Math.round(Number(stdout.split(/\s/)[0] || 0) / 1024);
 }
 
 /** Runs every app inside its own Docker container with hard memory / CPU / process limits. */
@@ -77,27 +67,33 @@ export class DockerRunner implements Runner {
 
   async deploy(ctx: DeployContext): Promise<RuntimePatch> {
     const { project, srcDir, detection, log, stage } = ctx;
-    const buildEnv = ctx.buildEnv ?? project.env;
-    const envKeys = Object.keys(buildEnv);
+    const version = Date.now().toString(36);
+
+    await stage('building');
+    await this.buildInSandbox(project, srcDir, detection, ctx.buildEnv ?? project.env, version, log);
+
+    const size = await folderMb(srcDir);
+    if (size > config.limits.buildMaxDiskMb) {
+      throw new Error(`The build folder is ${size} MB, above the ${config.limits.buildMaxDiskMb} MB limit. Remove unneeded dependencies or files.`);
+    }
+    const outputDir = detection.kind === 'static' ? await this.findOutput(srcDir, detection) : '.';
 
     // Remove first so a file (or symlink) shipped in the repo can never redirect these writes.
     const files: Array<[string, string]> = [
-      [DOCKERFILE, dockerfileFor(detection, envKeys)],
+      [DOCKERFILE, dockerfileFor(detection, outputDir)],
       [NGINX_CONF, NGINX_CONFIG],
-      ['.dockerignore', 'node_modules\n.git\n.hostx.*\n!.hostx.Dockerfile\n!.hostx.nginx.conf\n'],
+      // A static image needs only the output folder: keep node_modules out of the build context.
+      ['.dockerignore', `.git\n${detection.kind === 'static' ? 'node_modules\n' : ''}.hostx.*\n!.hostx.Dockerfile\n!.hostx.nginx.conf\n`],
     ];
     for (const [name, content] of files) {
       await fs.rm(path.join(srcDir, name), { force: true });
       await fs.writeFile(path.join(srcDir, name), content);
     }
 
-    await stage('building');
-    log('[hostx] Building Docker image...');
-    const version = Date.now().toString(36);
+    log(`[hostx] Packaging the image (${size} MB)...`);
     const image = imageName(project, version);
-    const buildArgs = envKeys.flatMap((k) => ['--build-arg', `${k}=${buildEnv[k]}`]);
     try {
-      await run('docker', ['build', '-t', image, '-f', DOCKERFILE, ...buildArgs, '.'], {
+      await run('docker', ['build', '-t', image, '-f', DOCKERFILE, '.'], {
         cwd: srcDir,
         onLine: log,
         timeoutMs: config.limits.buildTimeoutMs,
@@ -116,6 +112,76 @@ export class DockerRunner implements Runner {
       await exec('docker', ['rmi', '-f', image]);
       throw err;
     }
+  }
+
+  /**
+   * Runs install + build of the user's code in a throwaway container with hard limits (memory without swap, CPU,
+   * process count), no Linux capabilities and as an unprivileged user, writing into the mounted source folder.
+   */
+  private async buildInSandbox(
+    project: Project,
+    srcDir: string,
+    detection: Detection,
+    buildEnv: Record<string, string>,
+    version: string,
+    log: (l: string) => void,
+  ): Promise<void> {
+    const steps = [detection.hasPackage ? installCommand(detection.packageManager) : '', detection.buildCommand].filter(Boolean);
+    if (steps.length === 0) return;
+    const { buildMemory, buildCpus, buildPids, buildTimeoutMs } = config.limits;
+    log(`[hostx] Building in a sandbox (${buildMemory} RAM, ${buildCpus} CPU, ${buildTimeoutMs / 60_000} min max)`);
+    for (const step of steps) log(`[hostx] $ ${step}`);
+
+    const name = `hostx-build-${project.id}-${version}`;
+    const envFile = path.join(config.envDir, `${name}.env`);
+    await fs.mkdir(config.envDir, { recursive: true });
+    await fs.writeFile(envFile, Object.entries(buildEnv).map(([k, v]) => `${k}=${v}`).join('\n'), { mode: 0o600 });
+    // The engine's own user, so files written in the mounted folder stay ours (root has no extra rights here anyway).
+    const user = process.getuid && process.getgid ? `${process.getuid()}:${process.getgid()}` : '1000:1000';
+    try {
+      const { code } = await exec(
+        'docker',
+        [
+          'run', '--rm',
+          '--name', name,
+          '--label', `hostx.build=${project.id}`,
+          `--memory=${buildMemory}`,
+          `--memory-swap=${buildMemory}`,
+          `--cpus=${buildCpus}`,
+          `--pids-limit=${buildPids}`,
+          '--ulimit', 'nofile=8192:8192',
+          '--cap-drop=ALL',
+          '--security-opt', 'no-new-privileges',
+          '--user', user,
+          '--env-file', envFile,
+          // Writable home for npm/yarn/pnpm caches; devDependencies are needed, so NODE_ENV stays unset.
+          '-e', 'HOME=/tmp',
+          '-e', 'COREPACK_HOME=/tmp/corepack',
+          '-e', 'COREPACK_ENABLE_DOWNLOAD_PROMPT=0',
+          '-e', 'npm_config_update_notifier=false',
+          '-v', `${srcDir}:/app`,
+          '-w', '/app',
+          nodeImage(detection),
+          'sh', '-c', steps.join(' && '),
+        ],
+        { onLine: log, timeoutMs: buildTimeoutMs, label: 'build' },
+      );
+      if (code === 137) {
+        throw new Error(`The build ran out of memory (limit ${buildMemory}). Reduce what the build loads at once (fewer parallel jobs, smaller bundles), or ask the administrator to raise HOSTX_BUILD_MEMORY.`);
+      }
+      if (code !== 0) throw new Error(`The build failed with exit code ${code}. See the log above.`);
+    } finally {
+      // On timeout only the docker CLI is killed: make sure the container goes too.
+      await exec('docker', ['rm', '-f', name]);
+      await fs.rm(envFile, { force: true });
+    }
+  }
+
+  private async findOutput(srcDir: string, detection: Detection): Promise<string> {
+    for (const dir of [detection.outputDir, ...OUTPUT_CANDIDATES]) {
+      if (await fs.access(path.join(srcDir, dir, 'index.html')).then(() => true, () => false)) return dir;
+    }
+    throw new Error(`Build finished but no index.html was found in ${detection.outputDir}/. Check your build output folder.`);
   }
 
   /** Starts `image` next to the running version on a fresh port; the caller switches traffic once it resolves. */
