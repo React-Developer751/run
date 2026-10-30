@@ -11,7 +11,7 @@ export interface DeployContext {
   /** Absolute path of the folder to build (repo root or chosen sub-folder). */
   srcDir: string;
   detection: Detection;
-  /** Variables passed to the image build. Defaults to project.env; add-on secrets (MONGODB_URI) are runtime-only. */
+  /** Variables passed to the image build. Defaults to project.env. */
   buildEnv?: Record<string, string>;
   log: (line: string) => void;
   stage: (status: DeploymentStatus) => Promise<void>;

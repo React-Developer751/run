@@ -11,7 +11,6 @@ import { AdminAlertService } from './admin-alert.service.js';
 import { AlertService } from './alert.service.js';
 import { GitHubService } from './github.service.js';
 import { DeployLog, redactPaths } from './log.service.js';
-import { MongoService } from './mongo.service.js';
 import { PortService } from './port.service.js';
 import { RunnerService } from './runner.service.js';
 import { billingEnabled } from '../config/plans.js';
@@ -30,8 +29,6 @@ export interface CreateProjectInput {
   outputDir: string | null;
   autoDeploy: boolean;
   githubInstallationId: number | null;
-  /** Create a managed MongoDB database for the project before the first deploy. */
-  database: boolean;
 }
 
 const projectDir = (p: Project) => path.join(config.appsDir, p.id);
@@ -52,14 +49,6 @@ async function safeWorkDir(p: Project): Promise<string> {
   if (!realDir) throw new Error(`Folder "${p.rootDir}" does not exist in this repository.`);
   if (realDir !== realRoot && !realDir.startsWith(realRoot + path.sep)) throw new Error('Invalid root directory');
   return realDir;
-}
-
-/**
- * Env the app actually runs with: the project's own vars plus MONGODB_URI/MONGO_URI from the database add-on.
- * Web services only: a static site's env is baked into public JavaScript, where a database password must never end up.
- */
-function runtimeEnv(project: Project, kind: Detection['kind']): Record<string, string> {
-  return kind === 'node' ? { ...MongoService.envFor(project), ...project.env } : project.env;
 }
 
 /** Detected defaults for the folder, overridden by whatever the user set on the project. */
@@ -127,8 +116,6 @@ export class DeployService {
       throw new HttpError(403, `Project limit reached (${limit}). Delete a project${upgrade} to create a new one.`);
     }
 
-    if (input.database && !MongoService.available()) throw new HttpError(503, 'Databases are not available on this server');
-
     let slug = slugify(input.name);
     if (isReservedSlug(slug) || Store.getProjectBySlug(slug)) {
       slug = `${slug.slice(0, 24)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -157,7 +144,6 @@ export class DeployService {
       port,
       pid: null,
       containerName: null,
-      database: null,
       githubInstallationId: input.githubInstallationId,
       domains: [],
       liveDeploymentId: null,
@@ -168,17 +154,6 @@ export class DeployService {
       updatedAt: now,
     });
 
-    if (input.database) {
-      try {
-        await MongoService.create(project);
-      } catch (err) {
-        // The database user may exist even if attaching failed: never leave it behind.
-        const created = Store.getProject(project.id);
-        if (created?.database) await MongoService.drop(created).catch(() => undefined);
-        await Store.deleteProject(project.id);
-        throw err;
-      }
-    }
     const deployment = await this.deploy(project, 'create');
     return { project, deployment };
   }
@@ -248,11 +223,10 @@ export class DeployService {
       const runner = RunnerService.for(project);
       log.system(`Rolling back to deployment ${target.id}${target.commit ? ` (commit ${target.commit})` : ''}: reusing its image, nothing is rebuilt.`);
       log.system('The current environment variables are used.');
-      if (project.database && kind === 'node') await MongoService.attach(project);
 
       const previous = { ...project };
       const patch = await (runner.startImage as NonNullable<typeof runner.startImage>)(
-        { ...project, env: runtimeEnv(project, kind) },
+        project,
         kind,
         target.image as string,
         log.write,
@@ -314,8 +288,7 @@ export class DeployService {
     try {
       const srcDir = project.runtime === 'docker' ? sourceDir(project) : await safeWorkDir(project);
       const detection = (project.runtime === 'docker' ? null : await resolveConfig(project, srcDir)) ?? PLACEHOLDER;
-      const runnable = { ...project, env: runtimeEnv(project, detection.kind) };
-      const patch = await RunnerService.for(project).start(runnable, srcDir, detection);
+      const patch = await RunnerService.for(project).start(project, srcDir, detection);
       await Store.updateProject(project.id, { ...patch, status: 'live' });
     } catch (err) {
       throw new HttpError(500, `Could not start the app: ${(err as Error).message}`);
@@ -323,8 +296,6 @@ export class DeployService {
   }
 
   static async remove(project: Project): Promise<void> {
-    // Before the runner: the project network can only be removed once Mongo has left it.
-    await MongoService.drop(project).catch((err) => logger.warn(`Database of ${project.id} was not dropped`, err));
     await RunnerService.for(project).remove(project).catch((err) => logger.warn(`Cleanup of ${project.id} was incomplete`, err));
     await fs.rm(projectDir(project), { recursive: true, force: true });
     await Store.deleteProject(project.id);
@@ -411,21 +382,16 @@ export class DeployService {
       log.system(`Build: ${detection.buildCommand || '(none)'} · ${detection.kind === 'static' ? `Output: ${detection.outputDir}` : `Start: ${detection.startCommand}`}`);
       await Store.updateDeployment(deploymentId, { commit });
 
-      if (project.database) {
-        if (!MongoService.available()) log.system('Warning: the database add-on is unavailable right now; MONGODB_URI is not set.');
-        else if (detection.kind === 'static') log.system('Note: static sites do not receive MONGODB_URI (it would be visible in the browser). Use it from your backend service.');
-        else {
-          if (runner.name === 'docker') await MongoService.attach(project);
-          log.system('Database attached: MONGODB_URI is set for this app.');
-        }
+      // A database URL in a static site's build env would end up in public JavaScript if the code references it.
+      if (detection.kind === 'static' && Object.keys(project.env).some((k) => /MONGO/i.test(k))) {
+        log.system('Warning: this is a static site. Keep MONGODB_URI in your backend service, never in frontend code.');
       }
 
       const previous = { ...project };
       const patch = await runner.deploy({
-        project: { ...project, env: MongoService.available() ? runtimeEnv(project, detection.kind) : project.env },
+        project: { ...project },
         srcDir,
         detection,
-        buildEnv: project.env,
         log: log.write,
         stage: setStage,
       });

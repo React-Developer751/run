@@ -115,8 +115,6 @@ export interface Project {
   port: number;
   pid: number | null;
   containerName: string | null;
-  /** Managed MongoDB add-on (null = none). The password is encrypted at rest like env vars. */
-  database: ProjectDatabase | null;
   /** Custom domains (e.g. www.myshop.com). Only verified ones receive traffic and TLS certificates. */
   domains: CustomDomain[];
   /** GitHub App installation used to clone (private repos). null = public clone. */
@@ -140,13 +138,6 @@ export interface CustomDomain {
   dns: 'ok' | 'not-pointing' | 'unknown';
   lastCheckedAt: string | null;
   lastError: string | null;
-  createdAt: string;
-}
-
-export interface ProjectDatabase {
-  name: string;
-  user: string;
-  password: string;
   createdAt: string;
 }
 
@@ -184,7 +175,7 @@ interface Database {
 export interface AdminNotification {
   id: string;
   at: string;
-  kind: 'deploy-failed' | 'database-near-limit' | 'disk-near-full';
+  kind: 'deploy-failed' | 'disk-near-full';
   severity: 'warning' | 'critical';
   title: string;
   message: string;
@@ -220,7 +211,8 @@ const normalizeUser = (u: User): User => ({
 });
 
 /** Fills fields added after a record was written; secrets are decrypted (they are encrypted at rest). */
-const loadProject = (p: Project): Project => ({
+// Records may still carry `database` from the removed managed-MongoDB add-on: dropped on load.
+const loadProject = ({ database: _removed, ...p }: Project & { database?: unknown }): Project => ({
   ...p,
   // Sleeping mode was removed: such apps count as live again, and DeployService.recover() starts them on boot.
   status: (p.status as string) === 'sleeping' ? 'live' : p.status,
@@ -231,7 +223,6 @@ const loadProject = (p: Project): Project => ({
   autoDeploy: p.autoDeploy ?? true,
   env: Object.fromEntries(Object.entries(p.env ?? {}).map(([k, v]) => [k, Vault.decrypt(v)])),
   webhookSecret: Vault.decrypt(p.webhookSecret ?? crypto.randomBytes(24).toString('hex')),
-  database: p.database ? { ...p.database, password: Vault.decrypt(p.database.password) } : null,
   githubInstallationId: p.githubInstallationId ?? null,
   domains: p.domains ?? [],
   liveDeploymentId: p.liveDeploymentId ?? null,
@@ -243,7 +234,6 @@ const projectDoc = (p: Project): string =>
     ...p,
     env: Object.fromEntries(Object.entries(p.env).map(([k, v]) => [k, Vault.encrypt(v)])),
     webhookSecret: Vault.encrypt(p.webhookSecret),
-    database: p.database ? { ...p.database, password: Vault.encrypt(p.database.password) } : null,
   });
 
 const normalizeDeployment = (d: Deployment): Deployment => ({ ...d, image: d.image ?? null, kind: d.kind ?? null, rollbackOf: d.rollbackOf ?? null });
@@ -665,7 +655,7 @@ export function limitsFor(user: User | undefined): PlanLimits {
   const legacyProjects = Store.settings().maxProjectsPerUser ?? config.limits.maxProjectsPerUser;
   const base: PlanLimits = billingEnabled() && user
     ? PLANS[user.plan]
-    : { projects: legacyProjects, databases: 1000, customDomains: 1000, databaseMb: Number(process.env.HOSTX_DATABASE_MB ?? 5120), memory: config.limits.memory, cpus: config.limits.cpus };
+    : { projects: legacyProjects, customDomains: 1000, memory: config.limits.memory, cpus: config.limits.cpus };
   // Admins are never limited by plans; an admin-set project limit always wins.
   const admin = user?.role === 'admin';
   return {

@@ -29,8 +29,6 @@ export interface Project {
   /** Cloned through the HostX GitHub App (private repository support). */
   viaGitHubApp: boolean;
   domains: CustomDomain[];
-  /** Managed MongoDB add-on; the URI contains the password (owner-only). */
-  database: { name: string; user: string; uri: string; createdAt: string } | null;
   webhook: { url: string; secret: string };
   status: ProjectStatus;
   commit: string | null;
@@ -96,8 +94,8 @@ export interface Health {
   status: string;
   runner: 'docker' | 'process';
   urlTemplate: string;
-  /** true when the server can create MongoDB databases. */
-  databases?: boolean;
+  /** Public IP apps connect from (for MongoDB Atlas Network Access), when the admin set HOSTX_PUBLIC_IP. */
+  serverIp?: string | null;
   github?: boolean;
   billing?: boolean;
 }
@@ -106,9 +104,7 @@ export type PlanId = 'free' | 'starter' | 'pro';
 
 export interface PlanLimits {
   projects: number;
-  databases: number;
   customDomains: number;
-  databaseMb: number;
   memory: string;
   cpus: string;
 }
@@ -124,7 +120,7 @@ export interface BillingInfo {
   enabled: boolean;
   plan: PlanId;
   limits: PlanLimits;
-  usage: { projects: number; databases: number; customDomains: number };
+  usage: { projects: number; customDomains: number };
   subscription: {
     plan: PlanId;
     status: 'created' | 'active' | 'pending' | 'cancelling' | 'cancelled' | 'halted';
@@ -230,7 +226,7 @@ export interface AdminStats {
 export interface AdminNotification {
   id: string;
   at: string;
-  kind: 'deploy-failed' | 'database-near-limit' | 'disk-near-full';
+  kind: 'deploy-failed' | 'disk-near-full';
   severity: 'warning' | 'critical';
   title: string;
   message: string;
@@ -243,6 +239,4 @@ export interface AdminNotification {
 export interface StorageReport {
   checkedAt: string | null;
   disks: Array<{ path: string; mount: string; totalMb: number; freeMb: number; usedPercent: number }>;
-  databases: Array<{ projectId: string; projectName: string; ownerEmail: string; database: string; usedMb: number; limitMb: number; usedPercent: number }>;
-  databaseNote: string | null;
 }

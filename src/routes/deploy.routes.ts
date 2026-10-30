@@ -16,8 +16,6 @@ export function registerDeployRoutes(router: Router): void {
   router.post('/api/projects/:id/deploy', DeployController.redeploy);
   router.post('/api/projects/:id/stop', DeployController.stop);
   router.post('/api/projects/:id/start', DeployController.start);
-  router.post('/api/projects/:id/database', DeployController.createDatabase);
-  router.delete('/api/projects/:id/database', DeployController.deleteDatabase);
 
   router.get('/api/projects/:id/deployments/:did/logs', DeployController.deploymentLogs);
   router.post('/api/projects/:id/deployments/:did/rollback', DeployController.rollback);

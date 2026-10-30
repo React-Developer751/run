@@ -132,21 +132,14 @@ Render ki tarah (`render.com` vs `onrender.com`) do domains use karo:
 
 Kyun: same registrable domain par user ki app dashboard ke liye cookies set kar sakti hai, aur ek phishing app aapka poora main domain Google Safe Browsing / spam lists mein block karwa sakti hai. Production mein engine start hi nahi hota agar dono domain same hon (`HOSTX_ALLOW_SHARED_DOMAIN=true` se override). `yourapps.app` aur `www.yourapps.app` dashboard par redirect hote hain. Live hone ke baad apps domain ko <https://publicsuffix.org> par submit karo (browsers phir har app ko alag site maanenge). Caddy config: `deploy/Caddyfile`.
 
-## MongoDB add-on
+## MongoDB (Atlas)
 
-Har web service ek click mein apna private MongoDB database le sakti hai (New deploy par "Add a MongoDB database", ya project → **Database** tab).
+HostX **database host nahi karta**. Users apna free [MongoDB Atlas](https://www.mongodb.com/cloud/atlas/register) database lagate hain, aur uska connection string project ke Environment mein `MONGODB_URI` (ya `MONGO_URI`) ke roop mein daalte hain.
 
-- Ek shared `mongo:8.0` container (`hostx-mongo`, data volume `hostx-mongo-data`, memory cap `HOSTX_MONGO_MEMORY`). Host par koi port publish nahi hota.
-- Har project ka apna database `db_<id>` + user `u_<id>` jo sirf usi database ko padh/likh sakta hai. Mongo sirf un projects ke private Docker network se judta hai jinke paas database hai, isliye apps phir bhi ek dusre tak nahi pahunch sakti.
-- App ko `MONGODB_URI` aur `MONGO_URI` milte hain (agar user ne khud set nahi kiye, jaise Atlas URI). Code: `mongoose.connect(process.env.MONGODB_URI)`. Database banane ke baad redeploy karna hota hai.
-- Static sites ko URI **kabhi nahi** milta (wo browser JavaScript mein dikh jata). Docker image build args mein bhi nahi jata, sirf runtime par.
-- Password `db.json` mein encrypted (AES-256-GCM). Mongo root password `data/mongo-root.key` mein.
-- Project delete = database + uska saara data delete.
-- Docker ke bina (dev): `HOSTX_MONGO_ADMIN_URI=mongodb://admin:pass@localhost:27017/?authSource=admin` aur `mongosh` install karo. `HOSTX_MONGO=off` se band.
-
-**Aapko server par karna hoga:** roz backup, e.g. cron mein
-`docker exec -i hostx-mongo sh -c 'mongodump -u root -p "$(cat)" --authenticationDatabase admin --archive --gzip' < data/mongo-root.key > /backups/mongo-$(date +%F).gz`.
-Abhi per-database storage quota nahi hai (MongoDB khud support nahi karta): admin disk usage dekhte rahein.
+- **Kyun:** MongoDB Server SSPL license par hai, jo MongoDB ko doosron ko "service" ki tarah dene par poore platform ka source code kholne ki shart rakhta hai. Atlas se ye risk nahi hai, data ka backup aur security MongoDB ke paas hai, aur aapke server ki RAM/disk bachti hai.
+- Project → **Database** tab mein step-by-step guide hai: free M0 cluster, database user, Network Access, connection string, phir "Open Environment and add MONGODB_URI". Tab batata hai ki URI set hai ya nahi.
+- **`HOSTX_PUBLIC_IP` set karo:** guide user ko yahi IP Atlas ke Network Access mein allow karne ko kehti hai (apps isi IP se Atlas tak jaati hain). Set na ho to guide `0.0.0.0/0` batati hai.
+- Env vars encrypted at rest rehte hain. Static site ke env mein Mongo URI ho to build log mein warning aati hai (frontend code mein wo public ho jata).
 
 ## Email (verification + forgot password)
 
@@ -182,10 +175,9 @@ Admin panel → **Notifications** (sidebar mein unread count). Saare admins ko e
 | Alert | Kab |
 |---|---|
 | **Deploy failed** | Kisi bhi user ka koi bhi deploy fail ho (owner email, kaunsa deploy, error ki pehli line, app abhi live hai ya offline) |
-| **Database almost full** | Kisi project ka MongoDB database apne plan ki storage limit ke 80% (warning) / 95% (critical) par. Limits: Free 512 MB, Starter 2 GB, Pro 10 GB (`HOSTX_*_DATABASE_MB`) |
 | **Disk almost full** | Server disk jahan databases, backups aur builds rehte hain (`data/` aur Docker data root) 85% / 95% bhar jaye (`HOSTX_DISK_WARN_PERCENT`, `HOSTX_DISK_CRITICAL_PERCENT`) |
 
-Storage har 10 min check hota hai ("Check now" button bhi). Wahi level 24 ghante mein ek baar hi dobara aata hai; warning se critical par turant. Page par disk usage aur sabse bade databases ki list bhi dikhti hai.
+Storage har 10 min check hota hai ("Check now" button bhi). Wahi level 24 ghante mein ek baar hi dobara aata hai; warning se critical par turant. Page par har disk ka usage bhi dikhta hai.
 
 ## Crash monitor + alerts
 
@@ -242,11 +234,11 @@ Root domain (`myshop.com`) ke liye `HOSTX_PUBLIC_IP` set ho to A record dikhta h
 
 ## Plans & billing (Razorpay)
 
-| Plan | Price | Projects | RAM / CPU per app | MongoDB | Custom domains |
-|---|---|---|---|---|---|
-| Free | ₹0 | 2 | 512 MB / 0.5 | 1 | 1 |
-| Starter | ₹299/mo | 5 | 1 GB / 1 | 3 | 3 |
-| Pro | ₹999/mo | 15 | 2 GB / 2 | 10 | 10 |
+| Plan | Price | Projects | RAM / CPU per app | Custom domains |
+|---|---|---|---|---|
+| Free | ₹0 | 2 | 512 MB / 0.5 | 1 |
+| Starter | ₹299/mo | 5 | 1 GB / 1 | 3 |
+| Pro | ₹999/mo | 15 | 2 GB / 2 | 10 |
 
 Har plan par apps **hamesha chalu** rehti hain: koi sleeping mode nahi (Render ke free tier ki tarah 15 min baad band nahi hoti). Free apps bhi 24 ghante server ki RAM leti hain, isliye server ka size users ke hisaab se rakho (`Free projects × 512 MB`).
 
@@ -279,9 +271,6 @@ Purana live version tab tak chalta rehta hai jab tak naya deploy successful na h
 | `HOSTX_PROXY_HOST` | all interfaces | Production mein `127.0.0.1` (sirf Caddy/nginx proxy tak pahunche) |
 | `HOSTX_BASE_DOMAIN` | `localhost` | Apps `<slug>.<domain>` pe. Production mein dashboard se **alag** domain |
 | `HOSTX_ALLOW_SHARED_DOMAIN` | `false` | Same domain par apps chalane ki zabardasti (not recommended) |
-| `HOSTX_MONGO` / `HOSTX_MONGO_IMAGE` | `on` / `mongo:8.0` | MongoDB add-on |
-| `HOSTX_MONGO_MEMORY` / `HOSTX_MONGO_CACHE_GB` | `1g` / `0.25` | Mongo container limits |
-| `HOSTX_MONGO_ADMIN_URI` | – | Docker ke bina ya apna Mongo server |
 | `HOSTX_PUBLIC_SCHEME` / `HOSTX_PUBLIC_PORT` | `http` / proxy port | Dashboard mein dikhne wale URLs ke liye |
 | `HOSTX_WEB_ORIGIN` | `http://localhost:3000` | CORS allow-list (comma separated) |
 | `HOSTX_SECRET` | auto (`data/secret.key`) | Token signing secret |
@@ -320,14 +309,12 @@ Security jo built-in hai: scrypt passwords, HS256 tokens, login rate-limit (IP +
 
 Dhyan do:
 - Apps ka code Docker container mein chalta hai, lekin Docker kernel share karta hai. Public/untrusted users ke liye gVisor/Sysbox jaisa extra sandbox sochna.
-- `data/db.json` mein env vars plaintext hain (file mode 600). Disk/backup ko secure rakho.
-- Backups: `data/` folder (db + secret). `apps/` dobara ban sakta hai.
+- Env vars `data/hostx.db` (SQLite) mein AES-256-GCM se encrypted hain (file mode 600). Disk/backup ko phir bhi secure rakho.
+- Backups: `data/backups/` + `data/secret.key`. `apps/` dobara ban sakta hai.
 
 ## Abhi support nahi (next steps)
 
-- Private GitHub repos (OAuth / deploy tokens)
-- Custom domains
-- Managed MongoDB — abhi `MONGO_URI` env var se Atlas jaisa external DB use karo
+- Managed database hosting (jaan-boojh kar nahi: users MongoDB Atlas use karte hain, upar dekho)
 - **Docker mode real Docker pe test nahi hua** (is machine pe Docker nahi tha). Fake `docker` shim se build/run/stop/start/recovery ka flow aur command-line args verify hue; asli images/nginx/container limits ek baar Docker wali machine pe check karo (neeche checklist).
 
 ## Docker wali machine pe pehli baar verify karo

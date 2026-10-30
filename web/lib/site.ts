@@ -3,7 +3,7 @@ export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3
 export const SITE_NAME = 'HostX';
 export const SITE_TITLE = 'HostX — Deploy your MERN app from GitHub in minutes';
 export const SITE_DESCRIPTION =
-  'Host your MERN app like on Render: connect GitHub, get a managed MongoDB database, free HTTPS and custom domains. Apps never sleep. Free plan, paid plans from ₹299/month.';
+  'Host your MERN app like on Render: connect GitHub, plug in your MongoDB Atlas database, get free HTTPS and custom domains. Apps never sleep. Free plan, paid plans from ₹299/month.';
 
 /**
  * Full metadata for a public page. A page-level `openGraph` replaces the root one entirely in Next.js, so every

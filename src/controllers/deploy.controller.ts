@@ -17,7 +17,6 @@ import { ClonerService } from '../services/cloner.service.js';
 import { DeployService } from '../services/deploy.service.js';
 import { GitHubService } from '../services/github.service.js';
 import { DeployLog } from '../services/log.service.js';
-import { MongoService } from '../services/mongo.service.js';
 import { DomainService } from '../services/domain.service.js';
 import { billingEnabled } from '../config/plans.js';
 import { RunnerService } from '../services/runner.service.js';
@@ -53,8 +52,6 @@ export const toPublicProject = (p: Project) => ({
         : { type: 'CNAME', name: d.name, value: DomainService.target(p) },
     ],
   })),
-  // Owner-only view (like env): the connection string includes the password.
-  database: p.database ? { name: p.database.name, user: p.database.user, uri: MongoService.uri(p.database), createdAt: p.database.createdAt } : null,
   webhook: { url: `${config.apiPublicUrl}/api/webhooks/github/${p.id}`, secret: p.webhookSecret },
   status: p.status,
   commit: p.commit,
@@ -104,7 +101,8 @@ export class DeployController {
       status: 'ok',
       runner: RunnerService.current().name,
       urlTemplate: projectUrl('{slug}'),
-      databases: MongoService.available(),
+      // MongoDB Atlas "Network Access" needs the address apps connect from.
+      serverIp: config.publicIp,
       github: GitHubService.enabled(),
       billing: billingEnabled(),
       signupOpen: Store.allUsers().length === 0 || (Store.settings().allowSignup ?? config.allowSignup),
@@ -156,7 +154,6 @@ export class DeployController {
       startCommand: validateCommand(body.startCommand, 'startCommand'),
       outputDir: validateOutputDir(body.outputDir),
       autoDeploy: body.autoDeploy === undefined ? true : body.autoDeploy === true,
-      database: body.database === true,
       githubInstallationId,
     });
     ctx.status = 201;
@@ -234,27 +231,6 @@ export class DeployController {
     if (project.status === 'deploying') throw new HttpError(409, 'Wait for the deployment to finish before deleting');
     await DeployService.remove(project);
     return { ok: true };
-  }
-
-  static async createDatabase(ctx: Ctx) {
-    const project = ownedProject(ctx);
-    if (project.status === 'deploying') throw new HttpError(409, 'Wait for the current deployment to finish first');
-    const updated = await MongoService.create(project);
-    ctx.status = 201;
-    return { project: toPublicProject(updated) };
-  }
-
-  /** Permanently deletes the project's database and all of its data. */
-  static async deleteDatabase(ctx: Ctx) {
-    const project = ownedProject(ctx);
-    if (!project.database) throw new HttpError(404, 'This project has no database');
-    if (project.status === 'deploying') throw new HttpError(409, 'Wait for the current deployment to finish first');
-    try {
-      await MongoService.drop(project);
-    } catch {
-      throw new HttpError(502, 'Could not delete the database. Please try again.');
-    }
-    return { project: toPublicProject(Store.getProject(project.id) ?? project) };
   }
 
   static async addDomain(ctx: Ctx) {

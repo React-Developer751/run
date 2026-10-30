@@ -8,7 +8,6 @@ import { registerDeployRoutes } from './routes/deploy.routes.js';
 import { AutoDeployService } from './services/autodeploy.service.js';
 import { AuthService } from './services/auth.service.js';
 import { DeployService } from './services/deploy.service.js';
-import { MongoService } from './services/mongo.service.js';
 import { MonitorService } from './services/monitor.service.js';
 import { DomainService } from './services/domain.service.js';
 import { BackupService } from './services/backup.service.js';
@@ -29,7 +28,6 @@ async function main(): Promise<void> {
   Vault.init(AuthService.deriveKey('hostx-secrets-at-rest'));
   await Store.init();
   await RunnerService.init();
-  await MongoService.init();
 
   await DeployService.recoverStatuses();
 

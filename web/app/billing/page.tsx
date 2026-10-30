@@ -111,7 +111,6 @@ export default function BillingPage() {
               <div className="card stack">
                 <h3 style={{ fontSize: 17 }}>Usage</h3>
                 <Usage label="Projects" used={info.usage.projects} max={info.limits.projects} />
-                <Usage label="MongoDB databases" used={info.usage.databases} max={info.limits.databases} />
                 <Usage label="Custom domains" used={info.usage.customDomains} max={info.limits.customDomains} />
                 <p className="muted" style={{ fontSize: 13.5 }}>
                   Each app: {info.limits.memory} RAM, {info.limits.cpus} CPU. Apps stay on all the time.

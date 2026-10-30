@@ -9,7 +9,6 @@ import type { AdminNotification, StorageReport } from '@/lib/types';
 
 const KIND_LABEL: Record<AdminNotification['kind'], string> = {
   'deploy-failed': 'Deploy failed',
-  'database-near-limit': 'Database almost full',
   'disk-near-full': 'Disk almost full',
 };
 
@@ -49,7 +48,7 @@ function StorageCard() {
         <div>
           <h3 style={{ fontSize: 17 }}>Storage</h3>
           <p className="muted" style={{ fontSize: 13.5 }}>
-            Checked every 10 minutes{report?.checkedAt ? ` · last ${timeAgo(report.checkedAt)}` : ' · first check runs a minute after start'}. Alerts at 80% (databases) and 85% (disks).
+            Checked every 10 minutes{report?.checkedAt ? ` · last ${timeAgo(report.checkedAt)}` : ' · first check runs a minute after start'}. Alerts at 85% and 95% full.
           </p>
         </div>
         <button className="btn btn-sm" onClick={checkNow} disabled={busy}>{busy ? <span className="spinner" /> : 'Check now'}</button>
@@ -64,25 +63,6 @@ function StorageCard() {
           <Bar pct={d.usedPercent} warn={85} />
         </div>
       ))}
-      {report?.databaseNote && <div className="hint">{report.databaseNote}</div>}
-      {report && report.databases.length > 0 && (
-        <div className="table-card" style={{ overflowX: 'auto' }}>
-          <table className="table">
-            <thead><tr><th>Project</th><th>Owner</th><th>Used</th><th style={{ width: '30%' }} /></tr></thead>
-            <tbody>
-              {report.databases.slice(0, 10).map((d) => (
-                <tr key={d.projectId}>
-                  <td>{d.projectName}<br /><small className="mono dim">{d.database}</small></td>
-                  <td className="muted">{d.ownerEmail}</td>
-                  <td className="mono">{d.usedMb} / {gb(d.limitMb)} ({d.usedPercent}%)</td>
-                  <td><Bar pct={d.usedPercent} warn={80} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {report && report.databases.length === 0 && !report.databaseNote && <div className="muted" style={{ fontSize: 14 }}>No project has a database yet.</div>}
     </div>
   );
 }
@@ -113,7 +93,7 @@ export default function AdminNotifications() {
       <div className="page-head" style={{ marginBottom: 0 }}>
         <div>
           <h1>Notifications</h1>
-          <p>Failed deployments and databases or disks running out of space. Admins are also emailed (at most once an hour per project).</p>
+          <p>Failed deployments and server disks running out of space. Admins are also emailed (at most once an hour per project).</p>
         </div>
         <button className="btn" disabled={!data?.unread} onClick={() => markRead()}>Mark all read{data?.unread ? ` (${data.unread})` : ''}</button>
       </div>
@@ -123,7 +103,7 @@ export default function AdminNotifications() {
       {error && <div className="error-box">{error}</div>}
 
       <div className="row" style={{ flexWrap: 'wrap' }}>
-        {(['all', 'unread', 'deploy-failed', 'database-near-limit', 'disk-near-full'] as Filter[]).map((f) => (
+        {(['all', 'unread', 'deploy-failed', 'disk-near-full'] as Filter[]).map((f) => (
           <button key={f} className={`btn btn-sm ${filter === f ? 'btn-primary' : ''}`} onClick={() => setFilter(f)}>
             {f === 'all' ? 'All' : f === 'unread' ? 'Unread' : KIND_LABEL[f]}
           </button>
@@ -141,7 +121,7 @@ export default function AdminNotifications() {
               </div>
               <p>{n.message}</p>
               <div className="row" style={{ gap: 12, fontSize: 13 }}>
-                <span className={`badge ${n.severity === 'critical' ? 'badge-bad' : 'badge-busy'}`}>{KIND_LABEL[n.kind]}</span>
+                <span className={`badge ${n.severity === 'critical' ? 'badge-bad' : 'badge-busy'}`}>{KIND_LABEL[n.kind] ?? n.kind}</span>
                 {n.projectName && <Link href={`/admin/projects?q=${encodeURIComponent(n.projectName)}`}>View project</Link>}
                 {!n.readAt && <button className="link-btn" onClick={() => markRead([n.id])}>Mark read</button>}
               </div>

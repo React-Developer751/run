@@ -138,7 +138,8 @@ export const config = {
     planIds: { starter: env.HOSTX_RAZORPAY_PLAN_STARTER ?? '', pro: env.HOSTX_RAZORPAY_PLAN_PRO ?? '' },
   },
 
-  // Custom domains: public IPv4 of this server, shown as the A record for apex domains (e.g. myshop.com).
+  // Public IPv4 of this server: the A record for apex custom domains (myshop.com), and the address users allow in
+  // MongoDB Atlas "Network Access" (apps reach Atlas from this IP).
   publicIp: env.HOSTX_PUBLIC_IP || null,
   // DNS servers used to verify custom domains (public resolvers see changes faster than a local cache).
   dnsServers: (env.HOSTX_DNS_SERVERS ?? '1.1.1.1,8.8.8.8').split(',').map((s) => s.trim()).filter(Boolean),
@@ -149,15 +150,7 @@ export const config = {
   // Users' apps must not share a registrable domain with the dashboard/API (see checkDomains). Escape hatch for old setups.
   allowSharedDomain: env.HOSTX_ALLOW_SHARED_DOMAIN === 'true',
 
-  // Managed MongoDB add-on: one database + user per project, MONGODB_URI injected into the app.
-  mongo: {
-    enabled: (env.HOSTX_MONGO ?? 'on').toLowerCase() !== 'off',
-    image: env.HOSTX_MONGO_IMAGE ?? 'mongo:8.0',
-    memory: env.HOSTX_MONGO_MEMORY ?? '1g',
-    cacheGb: /^\d+(\.\d+)?$/.test(env.HOSTX_MONGO_CACHE_GB ?? '') ? (env.HOSTX_MONGO_CACHE_GB as string) : '0.25',
-    // Without Docker (or to use your own server): a mongodb:// URI of a user allowed to create users and databases.
-    adminUri: env.HOSTX_MONGO_ADMIN_URI || null,
-  },
+
 } as const;
 
 const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'edu', 'ac', 'ltd', 'plc', 'gen', 'firm', 'ind', 'nic', 'res']);

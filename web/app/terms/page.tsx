@@ -29,7 +29,7 @@ export default function TermsPage() {
       <h2>2. The Service</h2>
       <p>
         {SITE_NAME} clones the repositories you choose, builds them and runs them in isolated containers, and may provide add-ons such as
-        managed MongoDB databases and custom domains. Features, limits and prices of each plan are shown on the{' '}
+        custom domains. Databases (for example MongoDB Atlas) are provided by third parties under their own terms; we do not host them. Features, limits and prices of each plan are shown on the{' '}
         <Link href="/pricing">Pricing</Link> page and may change; we will give reasonable notice of changes that reduce a paid plan.
       </p>
       <p>
@@ -72,7 +72,7 @@ export default function TermsPage() {
 
       <h2>7. Termination</h2>
       <p>
-        You may delete your account at any time from the Account page; this permanently deletes your applications, databases and data. We may
+        You may delete your account at any time from the Account page; this permanently deletes your applications and data on {SITE_NAME}. We may
         suspend or terminate accounts for breach of these Terms, non-payment, or legal requirements. Where we discontinue the Service as a
         whole we will give at least 30 days&apos; notice so you can export your data.
       </p>

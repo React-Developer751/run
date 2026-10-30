@@ -30,7 +30,6 @@ export class BillingController {
       limits: limitsFor(user),
       usage: {
         projects: projects.length,
-        databases: projects.filter((p) => p.database).length,
         customDomains: projects.reduce((n, p) => n + p.domains.length, 0),
       },
       subscription: sub ? { plan: sub.plan, status: sub.status, currentPeriodEnd: sub.currentPeriodEnd, paymentUrl: sub.status === 'created' ? sub.shortUrl : null } : null,

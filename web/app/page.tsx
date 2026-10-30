@@ -7,7 +7,7 @@ import { Nav } from '@/components/Nav';
 
 const LANDING_TITLE = 'HostX — Deploy your MERN app from GitHub in minutes';
 const LANDING_DESCRIPTION =
-  'Deploy React frontends and Node/Express APIs from GitHub, with a managed MongoDB database, free HTTPS and custom domains. Apps never sleep. Start free.';
+  'Deploy React frontends and Node/Express APIs from GitHub with your MongoDB Atlas database, free HTTPS and custom domains. Apps never sleep. Start free.';
 
 export const metadata: Metadata = pageMetadata({ title: LANDING_TITLE, description: LANDING_DESCRIPTION, path: '/', absoluteTitle: true });
 
@@ -31,7 +31,7 @@ const JSON_LD = {
 const STEPS = [
   { n: '1', title: 'Pick your repo', text: 'Connect GitHub and choose any repository — public or private — or paste a public link.' },
   { n: '2', title: 'Pick a folder', text: 'We scan for every package.json. Choose backend/ or frontend/ from a dropdown — no typing paths.' },
-  { n: '3', title: 'Build & isolate', text: 'Dependencies install, the app builds, and it starts in its own container. Add a MongoDB database in one click.' },
+  { n: '3', title: 'Build & isolate', text: 'Dependencies install, the app builds, and it starts in its own container. Connect MongoDB Atlas with one environment variable.' },
   { n: '4', title: 'Go live', text: 'You get an HTTPS subdomain (or your own domain) and every push to GitHub redeploys automatically.' },
 ];
 
@@ -40,7 +40,7 @@ const FEATURES: Array<{ icon: IconName; title: string; text: string; span: strin
   { icon: 'terminal', title: 'Live build logs', text: 'Watch every step — clone, install, build, start — as it happens.', span: 'span-2' },
   { icon: 'shield', title: 'Docker isolation', text: 'Each app runs in a container with a memory cap, CPU limit and process limit. One bad app never takes the server down.', span: 'span-2' },
   { icon: 'globe', title: 'HTTPS & custom domains', text: 'A free my-app subdomain with HTTPS, or connect your own domain — certificates are automatic. WebSockets work too.', span: 'span-2' },
-  { icon: 'key', title: 'MongoDB in one click', text: 'A private database for your API. MONGODB_URI is set for you — just mongoose.connect().', span: 'span-2' },
+  { icon: 'key', title: 'MongoDB Atlas ready', text: 'Paste your free Atlas connection string as MONGODB_URI — a step-by-step guide shows you how. Just mongoose.connect().', span: 'span-2' },
   { icon: 'refresh', title: 'Never sleeps, never breaks', text: 'Apps stay on 24/7. Redeploys are zero-downtime, crashes restart automatically, and you can roll back in one click.', span: 'span-3' },
   { icon: 'bolt', title: 'Private repos & auto-deploy', text: 'Connect GitHub once. Every push to your branch goes live on its own; a failed build never replaces a working version.', span: 'span-3' },
 ];
@@ -61,8 +61,8 @@ export default function Landing() {
             <span className="serif grad-text">Just paste a link.</span>
           </h1>
           <p className="lead">
-            HostX turns a GitHub repository into a live app — React frontends, Node/Express APIs and a MongoDB database,
-            with HTTPS, auto-deploys and real build logs. Your apps never sleep. Start free, no credit card.
+            HostX turns a GitHub repository into a live app — React frontends and Node/Express APIs connected to your MongoDB
+            Atlas database, with HTTPS, auto-deploys and real build logs. Your apps never sleep. Start free, no credit card.
           </p>
           <div className="hero-cta">
             <Link href="/register" className="btn btn-primary btn-lg">

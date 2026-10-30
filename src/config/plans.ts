@@ -6,12 +6,8 @@ export const PLAN_IDS: PlanId[] = ['free', 'starter', 'pro'];
 export interface PlanLimits {
   /** Projects (static sites and web services) the user may have. */
   projects: number;
-  /** MongoDB add-on databases. */
-  databases: number;
   /** Custom domains across all of the user's projects. */
   customDomains: number;
-  /** Storage per MongoDB database in MB. Admins are alerted at 80% and 95%. */
-  databaseMb: number;
   /** Docker memory limit per app, e.g. "512m". */
   memory: string;
   /** Docker CPU share per app, e.g. "0.5". */
@@ -34,9 +30,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Free',
     priceInr: 0,
     projects: n(env.HOSTX_FREE_PROJECTS, 2),
-    databases: n(env.HOSTX_FREE_DATABASES, 1),
     customDomains: n(env.HOSTX_FREE_DOMAINS, 1),
-    databaseMb: n(env.HOSTX_FREE_DATABASE_MB, 512),
     // Enough for a typical Express + Mongoose API to run without slowdowns or out-of-memory crashes.
     memory: env.HOSTX_FREE_MEMORY ?? '512m',
     cpus: env.HOSTX_FREE_CPUS ?? '0.5',
@@ -46,9 +40,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Starter',
     priceInr: n(env.HOSTX_PRICE_STARTER, 299),
     projects: n(env.HOSTX_STARTER_PROJECTS, 5),
-    databases: n(env.HOSTX_STARTER_DATABASES, 3),
     customDomains: n(env.HOSTX_STARTER_DOMAINS, 3),
-    databaseMb: n(env.HOSTX_STARTER_DATABASE_MB, 2048),
     memory: env.HOSTX_STARTER_MEMORY ?? '1g',
     cpus: env.HOSTX_STARTER_CPUS ?? '1',
   },
@@ -57,9 +49,7 @@ export const PLANS: Record<PlanId, Plan> = {
     name: 'Pro',
     priceInr: n(env.HOSTX_PRICE_PRO, 999),
     projects: n(env.HOSTX_PRO_PROJECTS, 15),
-    databases: n(env.HOSTX_PRO_DATABASES, 10),
     customDomains: n(env.HOSTX_PRO_DOMAINS, 10),
-    databaseMb: n(env.HOSTX_PRO_DATABASE_MB, 10240),
     memory: env.HOSTX_PRO_MEMORY ?? '2g',
     cpus: env.HOSTX_PRO_CPUS ?? '2',
   },

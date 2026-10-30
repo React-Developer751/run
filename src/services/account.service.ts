@@ -7,7 +7,7 @@ import { Store, type User } from './store.service.js';
 export class AccountService {
   /**
    * Permanently deletes an account and everything it owns: subscription (cancelled first, so a failed cancel never
-   * leaves someone being charged for a deleted account), apps, images, databases, domains, logs, sessions and tokens.
+   * leaves someone being charged for a deleted account), apps, images, domains, logs, sessions and tokens.
    */
   static async delete(user: User): Promise<number> {
     const projects = Store.projectsOf(user.id);

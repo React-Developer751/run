@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AtlasGuide, MONGO_ENV_KEYS } from '@/components/AtlasGuide';
 import { BuildSettings } from '@/components/BuildSettings';
 import { DomainsPanel } from '@/components/DomainsPanel';
 import { EnvEditor, envFromRows, rowsFromEnv, type EnvRow } from '@/components/EnvEditor';
@@ -90,11 +91,10 @@ export default function ProjectPage() {
   const [cfgInitial, setCfgInitial] = useState<BuildConfig | null>(null);
   const [runtimeLogs, setRuntimeLogs] = useState<string[]>([]);
   const [events, setEvents] = useState<ProjectEvent[]>([]);
-  const [databasesOn, setDatabasesOn] = useState(false);
-  const [showUri, setShowUri] = useState(false);
+  const [serverIp, setServerIp] = useState<string | null>(null);
 
   useEffect(() => {
-    api.health().then((h) => setDatabasesOn(Boolean(h.databases))).catch(() => undefined);
+    api.health().then((h) => setServerIp(h.serverIp ?? null)).catch(() => undefined);
   }, []);
 
   const toastTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -351,73 +351,18 @@ export default function ProjectPage() {
         {tab === 'domains' && <DomainsPanel project={project} onChange={setProject} flash={flash} />}
 
         {tab === 'database' && (
-          <div className="card stack" style={{ maxWidth: 760 }}>
-            <div>
-              <h3 style={{ fontSize: 18 }}>MongoDB</h3>
-              <p className="muted" style={{ marginTop: 6 }}>
-                A private database only this project can use. The connection string is injected as{' '}
-                <span className="mono">MONGODB_URI</span> (and <span className="mono">MONGO_URI</span>) into your web service, unless you set those variables yourself.
-              </p>
-            </div>
-            {project.database ? (
-              <>
-                <div className="field">
-                  <span className="label">Connection string</span>
-                  <div className="row">
-                    <input
-                      className="input input-sm mono"
-                      readOnly
-                      type={showUri ? 'text' : 'password'}
-                      value={project.database.uri}
-                      onFocus={(e) => e.currentTarget.select()}
-                    />
-                    <button type="button" className="btn btn-sm" onClick={() => setShowUri((v) => !v)}>{showUri ? 'Hide' : 'Show'}</button>
-                    <button type="button" className="btn btn-sm" onClick={() => { void navigator.clipboard?.writeText(project.database?.uri ?? ''); flash('Connection string copied'); }}>
-                      <Icon name="copy" /> Copy
-                    </button>
-                  </div>
-                  <span className="hint">
-                    Database <span className="mono">{project.database.name}</span> · created {timeAgo(project.database.createdAt)}. It is reachable only from this app, not from the internet.
-                    {project.kind === 'static' && ' Static sites never receive it — connect from your backend service.'}
-                  </span>
-                </div>
-                <div className="notice-box">
-                  In code: <span className="mono">mongoose.connect(process.env.MONGODB_URI)</span>. Redeploy after adding a database so the app picks it up.
-                </div>
-                <div>
-                  <button
-                    className="btn btn-danger"
-                    disabled={busy !== '' || deploying}
-                    onClick={() => {
-                      if (!window.confirm(`Delete database "${project.database?.name}" and ALL of its data? This cannot be undone.`)) return;
-                      void act('db', () => api.deleteDatabase(id), 'Database deleted');
-                    }}
-                  >
-                    {busy === 'db' ? <span className="spinner" /> : <Icon name="trash" />} Delete database
-                  </button>
-                </div>
-              </>
-            ) : databasesOn ? (
-              <div className="row">
-                <button
-                  className="btn btn-primary"
-                  disabled={busy !== '' || deploying}
-                  onClick={() => act('db', async () => {
-                    await api.createDatabase(id);
-                    if (project.status === 'live' && window.confirm('Database created. Redeploy now so the app receives MONGODB_URI?')) {
-                      const r = await api.redeploy(id);
-                      setSelected(r.deployment.id);
-                      setTab('deployments');
-                    }
-                  }, 'Database created')}
-                >
-                  {busy === 'db' ? <span className="spinner" /> : null} Create database
-                </button>
-              </div>
-            ) : (
-              <div className="notice-box">Databases are not enabled on this server.</div>
-            )}
-          </div>
+          <AtlasGuide
+            project={project}
+            serverIp={serverIp}
+            flash={flash}
+            onUseEnv={() => {
+              if (!envRows.some((r) => MONGO_ENV_KEYS.includes(r.key.trim()))) {
+                setEnvRows((rows) => [...rows, { key: 'MONGODB_URI', value: '' }]);
+                setEnvDirty(true);
+              }
+              setTab('env');
+            }}
+          />
         )}
 
         {tab === 'settings' && (
@@ -494,7 +439,7 @@ export default function ProjectPage() {
 
             <div className="card stack danger-zone">
               <h3 style={{ fontSize: 18, color: 'var(--bad)' }}>Danger zone</h3>
-              <p className="muted">Deleting stops the app and permanently removes its files, logs and deployments{project.database ? ', and its database with all data' : ''}.</p>
+              <p className="muted">Deleting stops the app and permanently removes its files, logs and deployments. Your MongoDB Atlas data is not touched.</p>
               <div>
                 <button
                   className="btn btn-danger"

@@ -29,8 +29,6 @@ export default function NewDeploy() {
   const [name, setName] = useState('');
   const [env, setEnv] = useState<EnvRow[]>([]);
   const [autoDeploy, setAutoDeploy] = useState(true);
-  const [withDatabase, setWithDatabase] = useState(false);
-  const [databasesOn, setDatabasesOn] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [error, setError] = useState('');
   const [urlTemplate, setUrlTemplate] = useState('http://{slug}.localhost:8080');
@@ -50,7 +48,7 @@ export default function NewDeploy() {
   const installationId = githubRepo?.installationId;
 
   useEffect(() => {
-    api.health().then((h) => { setUrlTemplate(h.urlTemplate); setDatabasesOn(Boolean(h.databases)); setGithubOn(Boolean(h.github)); }).catch(() => undefined);
+    api.health().then((h) => { setUrlTemplate(h.urlTemplate); setGithubOn(Boolean(h.github)); }).catch(() => undefined);
   }, []);
 
   const reset = () => setScanned(false);
@@ -85,7 +83,6 @@ export default function NewDeploy() {
         name: name.trim(),
         env: envFromRows(env),
         autoDeploy,
-        database: withDatabase && config.kind === 'node',
         ...(installationId !== undefined ? { githubInstallationId: installationId } : {}),
         ...config,
         rootDir: config.rootDir.trim() || '.',
@@ -207,20 +204,13 @@ export default function NewDeploy() {
                 <div className="field">
                   <span className="label">Environment variables <span className="dim">(optional)</span></span>
                   <EnvEditor rows={env} onChange={setEnv} />
-                  {config.kind === 'static' && (
-                    <span className="hint">For React/Vite, use the VITE_ prefix (e.g. VITE_API_URL). Values are baked in at build time.</span>
+                  {config.kind === 'static' ? (
+                    <span className="hint">For React/Vite, use the VITE_ prefix (e.g. VITE_API_URL). Values are baked in at build time. Never put database URLs here.</span>
+                  ) : (
+                    <span className="hint">Using MongoDB? Add <span className="mono">MONGODB_URI</span> with your free MongoDB Atlas connection string (the project's Database tab has a step-by-step guide).</span>
                   )}
                 </div>
 
-                {databasesOn && config.kind === 'node' && (
-                  <label className="check">
-                    <input type="checkbox" checked={withDatabase} onChange={(e) => setWithDatabase(e.target.checked)} />
-                    <span>
-                      <b>Add a MongoDB database</b>
-                      <small>A private database for this service. Your app gets its connection string as <span className="mono">process.env.MONGODB_URI</span>.</small>
-                    </span>
-                  </label>
-                )}
 
                 <label className="check">
                   <input type="checkbox" checked={autoDeploy} onChange={(e) => setAutoDeploy(e.target.checked)} />

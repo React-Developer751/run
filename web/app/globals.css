@@ -526,3 +526,7 @@ p { margin: 0; }
 .notif-dot.critical { background: var(--bad); }
 .notif-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .notif-body p { color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+
+/* MongoDB Atlas guide */
+.atlas-steps { padding-left: 22px; display: flex; flex-direction: column; gap: 14px; line-height: 1.6; }
+.atlas-steps a { color: var(--accent); }

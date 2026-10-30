@@ -26,7 +26,7 @@ export default async function PricingPage() {
     '@context': 'https://schema.org',
     '@type': 'Product',
     name: `${SITE_NAME} hosting`,
-    description: 'Hosting for MERN apps: GitHub deploys, managed MongoDB, HTTPS and custom domains.',
+    description: 'Hosting for MERN apps: GitHub deploys, MongoDB Atlas support, HTTPS and custom domains.',
     brand: { '@type': 'Brand', name: SITE_NAME },
     offers: plans.map((p) => ({ '@type': 'Offer', name: p.name, price: String(p.priceInr), priceCurrency: 'INR', url: `${SITE_URL}/pricing` })),
   };

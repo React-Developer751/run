@@ -26,7 +26,7 @@ export default function PrivacyPage() {
           <tr><td>Session records: IP address, browser user agent, sign-in times</td><td>Keep you signed in, detect stolen sessions, prevent abuse</td></tr>
           <tr><td>GitHub username and the GitHub App installations you connect</td><td>List and clone the repositories you choose (we never store your GitHub password or personal token)</td></tr>
           <tr><td>Repository code, build logs, runtime logs, environment variables (encrypted at rest)</td><td>Build, run and troubleshoot your applications</td></tr>
-          <tr><td>Data in managed databases and custom domain names</td><td>Provide those add-ons; we access database contents only when needed for support you request or to comply with law</td></tr>
+          <tr><td>Custom domain names</td><td>Route your domain to your application and obtain its HTTPS certificate</td></tr>
           <tr><td>Plan and subscription status, Razorpay subscription id</td><td>Billing. Card, UPI and bank details are collected and processed by Razorpay, not stored by us</td></tr>
           <tr><td>Security and audit logs of administrative actions</td><td>Security, fraud prevention, legal obligations</td></tr>
         </tbody>
@@ -49,7 +49,7 @@ export default function PrivacyPage() {
 
       <h2>4. How long we keep it</h2>
       <ul>
-        <li>Account data: while your account exists. When you delete your account we delete your applications, databases, logs, sessions and profile right away; copies in backups are overwritten within 30 days.</li>
+        <li>Account data: while your account exists. When you delete your account we delete your applications, logs, sessions and profile right away; copies in backups are overwritten within 30 days.</li>
         <li>Build logs: the latest 15 deployments per project. Expired sessions and email links are removed automatically.</li>
         <li>Billing records: as long as tax and accounting law requires (generally up to 8 years), held by us and Razorpay.</li>
       </ul>
@@ -72,6 +72,10 @@ export default function PrivacyPage() {
       <p>We reply within 30 days.</p>
 
       <h2>7. Data in your own applications</h2>
+      <p>
+        We do not host your application&apos;s database. If you connect a service such as MongoDB Atlas, its provider stores that data
+        under its own terms; we only pass the connection string you saved (encrypted at rest) to your application.
+      </p>
       <p>
         If you host an application that collects personal data of your users, you decide how that data is used and you must provide your own
         privacy notice to them. We process it only to host your application, as described in our <Link href="/terms">Terms</Link>.

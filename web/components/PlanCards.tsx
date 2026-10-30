@@ -6,7 +6,7 @@ function features(p: Plan): string[] {
   return [
     `${p.projects} project${p.projects === 1 ? '' : 's'} (sites + services)`,
     `${memoryLabel(p.memory)} RAM · ${p.cpus} CPU per app`,
-    `${p.databases} MongoDB database${p.databases === 1 ? '' : 's'} · ${p.databaseMb >= 1024 ? `${p.databaseMb / 1024} GB` : `${p.databaseMb} MB`} each`,
+    'Works with MongoDB Atlas (free tier)',
     `${p.customDomains} custom domain${p.customDomains === 1 ? '' : 's'} with free SSL`,
     'Always on — apps never sleep',
     'Auto-deploy from GitHub, private repos',

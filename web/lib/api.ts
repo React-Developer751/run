@@ -96,7 +96,7 @@ export const api = {
 
   projects: () => request<{ projects: Project[] }>('/api/projects'),
   createProject: (
-    input: Partial<BuildConfig> & { repoUrl: string; branch?: string; name: string; env: Record<string, string>; autoDeploy?: boolean; database?: boolean; githubInstallationId?: number },
+    input: Partial<BuildConfig> & { repoUrl: string; branch?: string; name: string; env: Record<string, string>; autoDeploy?: boolean; githubInstallationId?: number },
   ) => request<{ project: Project; deployment: Deployment }>('/api/projects', 'POST', input),
   project: (id: string) => request<{ project: Project; deployments: Deployment[] }>(`/api/projects/${id}`),
   updateProject: (id: string, patch: Partial<BuildConfig> & { name?: string; env?: Record<string, string>; autoDeploy?: boolean }) =>
@@ -111,8 +111,6 @@ export const api = {
   verifyDomain: (id: string, name: string) => request<{ project: Project }>(`/api/projects/${id}/domains/${encodeURIComponent(name)}/verify`, 'POST', {}),
   removeDomain: (id: string, name: string) => request<{ project: Project }>(`/api/projects/${id}/domains/${encodeURIComponent(name)}`, 'DELETE'),
   events: (id: string) => request<{ events: ProjectEvent[] }>(`/api/projects/${id}/events`),
-  createDatabase: (id: string) => request<{ project: Project }>(`/api/projects/${id}/database`, 'POST', {}),
-  deleteDatabase: (id: string) => request<{ project: Project }>(`/api/projects/${id}/database`, 'DELETE'),
 
   deploymentLogs: (id: string, deploymentId: string, after: number) =>
     request<{ lines: string[]; next: number; status: Deployment['status']; error: string | null }>(
