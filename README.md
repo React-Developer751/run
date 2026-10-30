@@ -118,8 +118,10 @@ Admin ko navbar mein **Admin** link dikhta hai:
 | Users | search, make/remove admin, per-user project limit, suspend/reactivate (apps turant offline), delete user + uske projects |
 | Projects | sab users ke projects: status filter, logs (build + runtime), redeploy, stop/start, delete |
 | Deployments | latest 100 deployments, failed filter, har ek ka log |
-| Settings | signups on/off, default project limit (restart ke bina) |
+| Settings | **website ka naam**, signups on/off, plans & limits, default project limit (restart ke bina) |
 | Audit log | kisne kya kiya (user/project/settings changes) |
+
+**Website ka naam (Admin → Settings → Website name):** admin kabhi bhi naam badal sakta hai (2-40 characters; khaali/Reset = `HostX`). Naya naam logo, landing page, page titles, legal pages, footer, share image, app manifest, emails, build logs (`[naam]`) aur paused/archived app pages par dikhta hai. Save karte hi khuli hui pages aur server pages turant update hote hain; baaki jagah max 1 minute (cache). Dashboard server engine se naam leta hai; dono alag machine par hon to `HOSTX_INTERNAL_API_URL` set karo.
 
 Safeguards: apne aap ko demote/suspend/delete nahi kar sakte, kam se kam ek active admin hamesha rehta hai, admin list mein env values/secrets nahi dikhte, aur har admin action audit log mein jata hai.
 

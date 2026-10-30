@@ -1,19 +1,25 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
+import { LEGAL, pageMetadata } from '@/lib/site';
+import { getSiteName } from '@/lib/brand';
 
-export const metadata: Metadata = pageMetadata({
-  title: 'Terms of Service',
-  description: `The terms that apply when you use ${SITE_NAME} to deploy and host applications.`,
-  path: '/terms',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const siteName = await getSiteName();
+  return pageMetadata({
+    title: 'Terms of Service',
+    description: `The terms that apply when you use ${siteName} to deploy and host applications.`,
+    path: '/terms',
+    name: siteName,
+  });
+}
 
-export default function TermsPage() {
+export default async function TermsPage() {
+  const siteName = await getSiteName();
   return (
     <LegalPage title="Terms of Service">
       <p>
-        These Terms govern your use of {SITE_NAME} (the &quot;Service&quot;), a platform that builds and hosts web applications from
+        These Terms govern your use of {siteName} (the &quot;Service&quot;), a platform that builds and hosts web applications from
         GitHub repositories. By creating an account or using the Service you agree to these Terms, our{' '}
         <Link href="/privacy">Privacy Policy</Link> and our <Link href="/acceptable-use">Acceptable Use Policy</Link>. If you use the Service
         for an organisation, you confirm you may bind it to these Terms.
@@ -28,7 +34,7 @@ export default function TermsPage() {
 
       <h2>2. The Service</h2>
       <p>
-        {SITE_NAME} clones the repositories you choose, builds them and runs them in isolated containers, and may provide add-ons such as
+        {siteName} clones the repositories you choose, builds them and runs them in isolated containers, and may provide add-ons such as
         custom domains. Databases (for example MongoDB Atlas) are provided by third parties under their own terms; we do not host them. Features, limits and prices of each plan are shown on the{' '}
         <Link href="/pricing">Pricing</Link> page and may change; we will give reasonable notice of changes that reduce a paid plan.
       </p>
@@ -74,7 +80,7 @@ export default function TermsPage() {
 
       <h2>7. Termination</h2>
       <p>
-        You may delete your account at any time from the Account page; this permanently deletes your applications and data on {SITE_NAME}. We may
+        You may delete your account at any time from the Account page; this permanently deletes your applications and data on {siteName}. We may
         suspend or terminate accounts for breach of these Terms, non-payment, or legal requirements. Where we discontinue the Service as a
         whole we will give at least 30 days&apos; notice so you can export your data.
       </p>

@@ -217,7 +217,7 @@ export class StorageMonitorService {
         kind: 'disk-near-full',
         severity: level,
         title: `Server disk ${d.usedPercent}% full (${d.mount})`,
-        message: `Only ${(d.freeMb / 1024).toFixed(1)} GB of ${(d.totalMb / 1024).toFixed(1)} GB is free on ${d.mount}. The HostX database, backups, images and builds live here; when it is full, deploys fail and the platform cannot save changes. Free space or grow the disk.`,
+        message: `Only ${(d.freeMb / 1024).toFixed(1)} GB of ${(d.totalMb / 1024).toFixed(1)} GB is free on ${d.mount}. The platform database, backups, images and builds live here; when it is full, deploys fail and the platform cannot save changes. Free space or grow the disk.`,
         dedupeKey: `disk:${d.mount}:${level}`,
         repeatAfterMs: REPEAT_MS,
       });

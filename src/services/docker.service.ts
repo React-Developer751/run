@@ -8,6 +8,7 @@ import { installCommand, type Detection } from './detect.service.js';
 import { StorageMonitorService } from './storage-monitor.service.js';
 import type { AppHealth, DeployContext, Runner, RuntimePatch } from './runner.service.js';
 import { Store, limitsFor, type Project } from './store.service.js';
+import { siteSlug } from './brand.js';
 
 const DOCKERFILE = '.hostx.Dockerfile';
 const NGINX_CONF = '.hostx.nginx.conf';
@@ -109,7 +110,7 @@ export class DockerRunner implements Runner {
       await fs.writeFile(path.join(srcDir, name), content);
     }
 
-    log(`[hostx] Packaging the image (${size} MB)...`);
+    log(`[${siteSlug()}] Packaging the image (${size} MB)...`);
     const image = imageName(project, version);
     try {
       await run('docker', ['build', '-t', image, '-f', DOCKERFILE, '.'], {
@@ -124,7 +125,7 @@ export class DockerRunner implements Runner {
     }
 
     await stage('starting');
-    log('[hostx] Starting new version (the current one keeps serving until it is healthy)...');
+    log(`[${siteSlug()}] Starting new version (the current one keeps serving until it is healthy)...`);
     try {
       return await this.startVersion(project, detection.kind, image, version, log);
     } catch (err) {
@@ -148,8 +149,8 @@ export class DockerRunner implements Runner {
     const steps = [detection.hasPackage ? installCommand(detection.packageManager) : '', detection.buildCommand].filter(Boolean);
     if (steps.length === 0) return;
     const { buildMemory, buildCpus, buildPids, buildTimeoutMs } = config.limits;
-    log(`[hostx] Building in a sandbox (${buildMemory} RAM, ${buildCpus} CPU, ${buildTimeoutMs / 60_000} min max)`);
-    for (const step of steps) log(`[hostx] $ ${step}`);
+    log(`[${siteSlug()}] Building in a sandbox (${buildMemory} RAM, ${buildCpus} CPU, ${buildTimeoutMs / 60_000} min max)`);
+    for (const step of steps) log(`[${siteSlug()}] $ ${step}`);
 
     const name = `hostx-build-${project.id}-${version}`;
     const envFile = path.join(config.envDir, `${name}.env`);

@@ -1,11 +1,13 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
-import { LEGAL, LEGAL_PAGES, SITE_NAME } from '@/lib/site';
+import { getSiteName } from '@/lib/brand';
+import { LEGAL, LEGAL_PAGES } from '@/lib/site';
 import { Nav } from './Nav';
 import { SiteFooter } from './SiteFooter';
 
 /** Shared shell for the legal pages: readable prose column with links to the sibling policies. */
-export function LegalPage({ title, children }: { title: string; children: ReactNode }) {
+export async function LegalPage({ title, children }: { title: string; children: ReactNode }) {
+  const siteName = await getSiteName();
   return (
     <>
       <Nav variant="site" />
@@ -13,7 +15,7 @@ export function LegalPage({ title, children }: { title: string; children: ReactN
         <article className="legal">
           <h1>{title}</h1>
           <p className="muted">
-            Last updated: {LEGAL.updated}. {SITE_NAME} is operated by {LEGAL.company}.
+            Last updated: {LEGAL.updated}. {siteName} is operated by {LEGAL.company}.
           </p>
           {children}
           <hr />

@@ -5,7 +5,7 @@ import { config } from '../config/index.js';
 import { AdminAlertService } from '../services/admin-alert.service.js';
 import { AuthService } from '../services/auth.service.js';
 import { MailService } from '../services/mail.service.js';
-import { Store, type Feedback, type Ticket, type TicketMessage, type User } from '../services/store.service.js';
+import { Store, siteName, type Feedback, type Ticket, type TicketMessage, type User } from '../services/store.service.js';
 
 const CATEGORIES: Ticket['category'][] = ['emergency', 'deploy', 'billing', 'account', 'other'];
 const CATEGORY_LABEL: Record<Ticket['category'], string> = {
@@ -34,7 +34,7 @@ const text = (v: unknown, field: string, min: number, max: number): string => {
 
 /** "Priya Sharma" -> "Priya S." (what the landing page shows). */
 const publicName = (name: string) => {
-  const [first = 'A HostX user', last] = name.trim().split(/\s+/);
+  const [first = `A ${siteName()} user`, last] = name.trim().split(/\s+/);
   return last ? `${first} ${last[0]!.toUpperCase()}.` : first;
 };
 
@@ -86,7 +86,7 @@ const message = (from: TicketMessage['from'], author: User, body: string): Ticke
   at: new Date().toISOString(),
   from,
   // Users see "HostX Support" for admin replies, not the admin's personal name.
-  authorName: from === 'admin' ? 'HostX Support' : author.name,
+  authorName: from === 'admin' ? `${siteName()} Support` : author.name,
   text: body,
 });
 

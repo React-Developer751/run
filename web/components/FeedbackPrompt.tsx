@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import type { Feedback, Rating } from '@/lib/types';
+import { useSiteName } from './BrandProvider';
 
 const LATER_KEY = (projectId: string) => `hostx:feedback-later:${projectId}`;
 const LATER_MS = 7 * 24 * 60 * 60 * 1000;
@@ -21,6 +22,7 @@ export function Stars({ value, size = 16 }: { value: number; size?: number }) {
  * Sending again updates the same entry.
  */
 export function FeedbackPrompt({ projectId, projectName }: { projectId: string; projectName: string }) {
+  const siteName = useSiteName();
   const [existing, setExisting] = useState<Feedback | null | undefined>(undefined);
   const [hidden, setHidden] = useState(true);
   const [rating, setRating] = useState<Rating | 0>(0);
@@ -60,7 +62,7 @@ export function FeedbackPrompt({ projectId, projectName }: { projectId: string; 
     return (
       <div className="card feedback-card" role="status">
         <b>Thank you for the feedback!</b>
-        <p className="muted">It goes straight to the HostX team. Need help with something specific? Use <a href="/support">Support</a> and we will reply there.</p>
+        <p className="muted">It goes straight to the {siteName} team. Need help with something specific? Use <a href="/support">Support</a> and we will reply there.</p>
       </div>
     );
   }
@@ -84,7 +86,7 @@ export function FeedbackPrompt({ projectId, projectName }: { projectId: string; 
     <div className="card feedback-card">
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div>
-          <b>{projectName} is live 🎉 How was deploying it on HostX?</b>
+          <b>{projectName} is live 🎉 How was deploying it on {siteName}?</b>
           <p className="muted" style={{ marginTop: 4, fontSize: 14 }}>Takes 10 seconds and helps us improve.</p>
         </div>
         <button type="button" className="btn btn-sm" onClick={later}>Later</button>
@@ -119,7 +121,7 @@ export function FeedbackPrompt({ projectId, projectName }: { projectId: string; 
           />
           <label className="check">
             <input type="checkbox" checked={allowPublic} onChange={(e) => setAllowPublic(e.target.checked)} />
-            <span><b>HostX may show this on its website</b><small>With your first name and last initial only. Never your email or project.</small></span>
+            <span><b>{siteName} may show this on its website</b><small>With your first name and last initial only. Never your email or project.</small></span>
           </label>
           {error && <div className="error-box">{error}</div>}
           <div><button className="btn btn-primary" disabled={busy} onClick={submit}>{busy ? <span className="spinner" /> : 'Send feedback'}</button></div>

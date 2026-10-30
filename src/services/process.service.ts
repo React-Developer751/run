@@ -9,6 +9,7 @@ import { runtimeLogPath, tailFile } from './log.service.js';
 import { installCommand, type Detection } from './detect.service.js';
 import type { AppHealth, DeployContext, Runner, RuntimePatch } from './runner.service.js';
 import type { Project } from './store.service.js';
+import { siteSlug } from './brand.js';
 
 const staticPath = (p: Project) => path.join(config.staticDir, p.id);
 const OUTPUT_CANDIDATES = ['dist', 'build', 'out', 'public'];
@@ -53,11 +54,11 @@ export class ProcessRunner implements Runner {
 
     if (detection.hasPackage) {
       const install = installCommand(detection.packageManager);
-      log(`[hostx] ${install}`);
+      log(`[${siteSlug()}] ${install}`);
       await run('sh', ['-c', install], opts);
     }
     if (detection.buildCommand) {
-      log(`[hostx] ${detection.buildCommand}`);
+      log(`[${siteSlug()}] ${detection.buildCommand}`);
       await run('sh', ['-c', detection.buildCommand], opts);
     }
 
@@ -68,11 +69,11 @@ export class ProcessRunner implements Runner {
       await fs.rm(target, { recursive: true, force: true });
       await fs.mkdir(path.dirname(target), { recursive: true });
       await fs.cp(outDir, target, { recursive: true });
-      log(`[hostx] Static files published from ${path.relative(srcDir, outDir) || '.'}`);
+      log(`[${siteSlug()}] Static files published from ${path.relative(srcDir, outDir) || '.'}`);
       return { runtime: 'static', pid: null, containerName: null };
     }
 
-    log('[hostx] Starting app...');
+    log(`[${siteSlug()}] Starting app...`);
     await this.stop(project);
     return this.spawnApp(project, srcDir, detection);
   }

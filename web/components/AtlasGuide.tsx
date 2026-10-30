@@ -2,6 +2,7 @@
 
 import type { Project } from '@/lib/types';
 import { Icon } from './Icon';
+import { useSiteName } from './BrandProvider';
 
 /** Env names apps commonly read their MongoDB connection string from. */
 export const MONGO_ENV_KEYS = ['MONGODB_URI', 'MONGO_URI', 'MONGO_URL', 'DATABASE_URL'];
@@ -11,6 +12,7 @@ export const MONGO_ENV_KEYS = ['MONGODB_URI', 'MONGO_URI', 'MONGO_URL', 'DATABAS
  * `onUseEnv` jumps to the Environment tab with a MONGODB_URI row ready to fill.
  */
 export function AtlasGuide({ project, serverIp, onUseEnv, flash }: { project: Project; serverIp: string | null; onUseEnv: () => void; flash: (m: string) => void }) {
+  const siteName = useSiteName();
   const key = MONGO_ENV_KEYS.find((k) => project.env[k]?.startsWith('mongodb'));
   const copy = (v: string) => {
     void navigator.clipboard?.writeText(v);
@@ -45,7 +47,7 @@ export function AtlasGuide({ project, serverIp, onUseEnv, flash }: { project: Pr
           <b>Create a database user.</b> Security → <i>Database Access</i> → Add new user, with a password (save it).
         </li>
         <li>
-          <b>Allow HostX to connect.</b> Security → <i>Network Access</i> → Add IP address:
+          <b>Allow {siteName} to connect.</b> Security → <i>Network Access</i> → Add IP address:
           {serverIp ? (
             <span className="row" style={{ marginTop: 8, alignItems: 'center' }}>
               <span className="mono">{serverIp}</span>

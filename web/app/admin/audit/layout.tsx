@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
   title: 'Audit log',
-  description: 'Administrative actions on this HostX server.',
+  description: 'Administrative actions on this server.',
 };
 
 export default function Layout({ children }: { children: ReactNode }) {

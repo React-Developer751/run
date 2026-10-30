@@ -5,6 +5,7 @@ import { config } from '../config/index.js';
 import { run } from '../utils/exec.js';
 import { DetectService } from './detect.service.js';
 import type { ProjectKind } from './store.service.js';
+import { siteSlug } from './brand.js';
 
 export interface ScanFolder {
   path: string;
@@ -37,7 +38,7 @@ export class ClonerService {
       await run('git', args, opts);
     } catch (err) {
       // GitHub occasionally stalls or resets a connection; one clean retry fixes nearly all of these.
-      onLine?.(`[hostx] Clone failed (${(err as Error).message}), retrying once...`);
+      onLine?.(`[${siteSlug()}] Clone failed (${(err as Error).message}), retrying once...`);
       await fs.rm(dest, { recursive: true, force: true });
       await run('git', args, opts);
     }

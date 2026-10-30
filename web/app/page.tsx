@@ -2,24 +2,27 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Icon, type IconName } from '@/components/Icon';
 import { SiteFooter } from '@/components/SiteFooter';
-import { SITE_NAME, SITE_URL, pageMetadata } from '@/lib/site';
+import { getSiteName } from '@/lib/brand';
+import { SITE_URL, brandSlug, pageMetadata, siteTitle } from '@/lib/site';
 import { Nav } from '@/components/Nav';
 import { Testimonials } from '@/components/Testimonials';
 
-const LANDING_TITLE = 'HostX — Deploy your MERN app from GitHub in minutes';
 const LANDING_DESCRIPTION =
   'Deploy React frontends and Node/Express APIs from GitHub with your MongoDB Atlas database, free HTTPS and custom domains. No cold starts. Start free.';
 
-export const metadata: Metadata = pageMetadata({ title: LANDING_TITLE, description: LANDING_DESCRIPTION, path: '/', absoluteTitle: true });
+export async function generateMetadata(): Promise<Metadata> {
+  const name = await getSiteName();
+  return pageMetadata({ title: siteTitle(name), description: LANDING_DESCRIPTION, path: '/', absoluteTitle: true, name });
+}
 
 // Structured data for search engines: who we are and what the product is.
-const JSON_LD = {
+const jsonLd = (name: string) => ({
   '@context': 'https://schema.org',
   '@graph': [
-    { '@type': 'Organization', name: SITE_NAME, url: SITE_URL, logo: `${SITE_URL}/icon.svg` },
+    { '@type': 'Organization', name, url: SITE_URL, logo: `${SITE_URL}/icon.svg` },
     {
       '@type': 'SoftwareApplication',
-      name: SITE_NAME,
+      name,
       url: SITE_URL,
       applicationCategory: 'DeveloperApplication',
       operatingSystem: 'Web',
@@ -27,7 +30,7 @@ const JSON_LD = {
       offers: { '@type': 'Offer', price: '0', priceCurrency: 'INR' },
     },
   ],
-};
+});
 
 const STEPS = [
   { n: '1', title: 'Pick your repo', text: 'Connect GitHub and choose any repository — public or private — or paste a public link.' },
@@ -46,16 +49,16 @@ const FEATURES: Array<{ icon: IconName; title: string; text: string; span: strin
   { icon: 'bolt', title: 'Private repos & auto-deploy', text: 'Connect GitHub once. Every push to your branch goes live on its own; a failed build never replaces a working version.', span: 'span-3' },
 ];
 
-// What HostX detects and runs today: static builds (Vite, CRA) and Node.js servers.
+// What the platform detects and runs today: static builds (Vite, CRA) and Node.js servers.
 const STACK = ['React', 'Vite', 'Create React App', 'Vue', 'Svelte', 'Next.js', 'Express', 'Fastify', 'NestJS', 'Socket.IO', 'Mongoose', 'Prisma'];
 
 // Illustrative dashboard snapshot (not live data): what a typical MERN account looks like after a week.
-const PREVIEW: Array<{ name: string; url: string; status: 'Live' | 'Deploying' | 'Paused'; type: 'Web Service' | 'Static Site'; runtime: string; branch: string; at: string }> = [
-  { name: 'shopkart-api', url: 'shopkart-api.hostx.app', status: 'Live', type: 'Web Service', runtime: 'Express · Node 22', branch: 'main', at: '3 min ago' },
+const preview = (slug: string): Array<{ name: string; url: string; status: 'Live' | 'Deploying' | 'Paused'; type: 'Web Service' | 'Static Site'; runtime: string; branch: string; at: string }> => [
+  { name: 'shopkart-api', url: `shopkart-api.${slug}.app`, status: 'Live', type: 'Web Service', runtime: 'Express · Node 22', branch: 'main', at: '3 min ago' },
   { name: 'shopkart-web', url: 'shopkart.in', status: 'Live', type: 'Static Site', runtime: 'Vite + React', branch: 'main', at: '3 min ago' },
-  { name: 'campus-chat', url: 'campus-chat.hostx.app', status: 'Deploying', type: 'Web Service', runtime: 'Socket.IO · Node 20', branch: 'dev', at: 'just now' },
-  { name: 'portfolio', url: 'portfolio-ankit.hostx.app', status: 'Live', type: 'Static Site', runtime: 'Vite', branch: 'main', at: '2 days ago' },
-  { name: 'expense-tracker-api', url: 'expense-api.hostx.app', status: 'Paused', type: 'Web Service', runtime: 'Express · Node 22', branch: 'main', at: '9 days ago' },
+  { name: 'campus-chat', url: `campus-chat.${slug}.app`, status: 'Deploying', type: 'Web Service', runtime: 'Socket.IO · Node 20', branch: 'dev', at: 'just now' },
+  { name: 'portfolio', url: `portfolio-ankit.${slug}.app`, status: 'Live', type: 'Static Site', runtime: 'Vite', branch: 'main', at: '2 days ago' },
+  { name: 'expense-tracker-api', url: `expense-api.${slug}.app`, status: 'Paused', type: 'Web Service', runtime: 'Express · Node 22', branch: 'main', at: '9 days ago' },
 ];
 
 const EXAMPLES: Array<{ title: string; repo: string; tree: string[]; result: string[] }> = [
@@ -79,22 +82,25 @@ const EXAMPLES: Array<{ title: string; repo: string; tree: string[]; result: str
   },
 ];
 
-const FAQ: Array<{ q: string; a: string }> = [
+const faq = (name: string): Array<{ q: string; a: string }> => [
   { q: 'Is the free plan really free?', a: 'Yes. 5 Web Services and 10 Static Sites with HTTPS, auto-deploys and build logs. No credit card. A free web service that gets no visits for 7 days is paused; you resume it from the dashboard in one click. Static sites are never paused.' },
   { q: 'Do my apps sleep like on other free hosts?', a: 'No. There is no 15-minute sleep and no cold start: while people use your app it stays running. Only an app nobody has opened for a full week is paused, and nothing is deleted.' },
   { q: 'Where does my MongoDB database live?', a: 'In your own MongoDB Atlas account (the free M0 cluster is enough to start). Paste the connection string as MONGODB_URI in Environment; the dashboard has a step-by-step guide including the IP address to allow.' },
-  { q: 'Can I deploy a private GitHub repository?', a: 'Yes. Connect GitHub once and choose which repositories HostX may read. Every push to your branch then redeploys automatically; a failed build never replaces the version that is live.' },
-  { q: 'My repo has frontend and backend folders. How do I deploy it?', a: 'Deploy it twice: pick backend/ as a Web Service and frontend/ as a Static Site. HostX scans the repository and lists every folder with a package.json, so there are no paths to type.' },
-  { q: 'What happens if I need help?', a: 'Open Support in your dashboard. Requests go straight to the HostX team and replies appear there (and by email). Mark it Emergency if a live app is down.' },
+  { q: 'Can I deploy a private GitHub repository?', a: `Yes. Connect GitHub once and choose which repositories ${name} may read. Every push to your branch then redeploys automatically; a failed build never replaces the version that is live.` },
+  { q: 'My repo has frontend and backend folders. How do I deploy it?', a: `Deploy it twice: pick backend/ as a Web Service and frontend/ as a Static Site. ${name} scans the repository and lists every folder with a package.json, so there are no paths to type.` },
+  { q: 'What happens if I need help?', a: `Open Support in your dashboard. Requests go straight to the ${name} team and replies appear there (and by email). Mark it Emergency if a live app is down.` },
 ];
 
-const FAQ_LD = {
+const faqLd = (name: string) => ({
   '@context': 'https://schema.org',
   '@type': 'FAQPage',
-  mainEntity: FAQ.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
-};
+  mainEntity: faq(name).map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+});
 
-export default function Landing() {
+export default async function Landing() {
+  const name = await getSiteName();
+  const questions = faq(name);
+  const slug = brandSlug(name);
   return (
     <>
       <Nav variant="site" />
@@ -110,7 +116,7 @@ export default function Landing() {
             <span className="serif grad-text">Just paste a link.</span>
           </h1>
           <p className="lead">
-            HostX turns a GitHub repository into a live app — React frontends and Node/Express APIs connected to your MongoDB
+            {name} turns a GitHub repository into a live app — React frontends and Node/Express APIs connected to your MongoDB
             Atlas database, with HTTPS, auto-deploys and real build logs. No cold starts. Free plan: 5 web services + 10 static sites, no credit card.
           </p>
           <div className="hero-cta">
@@ -123,16 +129,16 @@ export default function Landing() {
           <div className="terminal" aria-label="Example deployment log">
             <div className="terminal-bar">
               <i /><i /><i />
-              <span>hostx — deploy my-portfolio</span>
+              <span>{slug} — deploy my-portfolio</span>
             </div>
             <div className="terminal-body">
-              <div className="t-line" style={{ animationDelay: '0.3s' }}><span className="k">❯</span> hostx deploy github.com/you/portfolio</div>
-              <div className="t-line" style={{ animationDelay: '1.0s' }}><span className="d">[hostx]</span> Scanning repository… found <span className="k">frontend/</span>, <span className="k">backend/</span></div>
-              <div className="t-line" style={{ animationDelay: '1.8s' }}><span className="d">[hostx]</span> Detected Vite · static site</div>
-              <div className="t-line" style={{ animationDelay: '2.6s' }}><span className="d">[hostx]</span> npm install <span className="d">· 167 packages</span></div>
-              <div className="t-line" style={{ animationDelay: '3.4s' }}><span className="d">[hostx]</span> npm run build <span className="d">· ✓ 33 modules transformed</span></div>
-              <div className="t-line" style={{ animationDelay: '4.2s' }}><span className="d">[hostx]</span> Starting in isolated container <span className="d">· 512 MB</span></div>
-              <div className="t-line" style={{ animationDelay: '5.0s' }}><span className="ok">✓ Live</span> https://my-portfolio.hostx.app</div>
+              <div className="t-line" style={{ animationDelay: '0.3s' }}><span className="k">❯</span> {slug} deploy github.com/you/portfolio</div>
+              <div className="t-line" style={{ animationDelay: '1.0s' }}><span className="d">[{slug}]</span> Scanning repository… found <span className="k">frontend/</span>, <span className="k">backend/</span></div>
+              <div className="t-line" style={{ animationDelay: '1.8s' }}><span className="d">[{slug}]</span> Detected Vite · static site</div>
+              <div className="t-line" style={{ animationDelay: '2.6s' }}><span className="d">[{slug}]</span> npm install <span className="d">· 167 packages</span></div>
+              <div className="t-line" style={{ animationDelay: '3.4s' }}><span className="d">[{slug}]</span> npm run build <span className="d">· ✓ 33 modules transformed</span></div>
+              <div className="t-line" style={{ animationDelay: '4.2s' }}><span className="d">[{slug}]</span> Starting in isolated container <span className="d">· 512 MB</span></div>
+              <div className="t-line" style={{ animationDelay: '5.0s' }}><span className="ok">✓ Live</span> https://my-portfolio.{slug}.app</div>
             </div>
           </div>
         </div>
@@ -197,12 +203,12 @@ export default function Landing() {
             <p>Status, runtime, branch and last deploy at a glance. Filter by active, paused, archived or failed.</p>
           </div>
           <div className="preview-window" aria-label="Example dashboard (illustration)">
-            <div className="terminal-bar"><i /><i /><i /><span>hostx.app/dashboard · example</span></div>
+            <div className="terminal-bar"><i /><i /><i /><span>{slug}.app/dashboard · example</span></div>
             <div className="table-card">
               <table className="table">
                 <thead><tr><th>Service name</th><th>Status</th><th>Type</th><th>Runtime</th><th>Branch</th><th>Updated</th></tr></thead>
                 <tbody>
-                  {PREVIEW.map((r) => (
+                  {preview(slug).map((r) => (
                     <tr key={r.name}>
                       <td><div className="cell-main"><b>{r.name}</b><small className="mono">{r.url}</small></div></td>
                       <td><span className={`badge ${r.status === 'Live' ? 'badge-live' : r.status === 'Deploying' ? 'badge-busy' : 'badge-idle'}`}>{r.status}</span></td>
@@ -223,8 +229,8 @@ export default function Landing() {
         <div className="container">
           <div className="section-head">
             <span className="tag">Real-world setups</span>
-            <h2>Projects developers <span className="serif grad-text">ship on HostX</span></h2>
-            <p>Typical repositories and what HostX turns them into. Yours probably looks like one of these.</p>
+            <h2>Projects developers <span className="serif grad-text">ship on {name}</span></h2>
+            <p>Typical repositories and what {name} turns them into. Yours probably looks like one of these.</p>
           </div>
           <div className="examples">
             {EXAMPLES.map((e) => (
@@ -266,7 +272,7 @@ export default function Landing() {
             <span className="tag">FAQ</span>
             <h2>Questions developers <span className="serif grad-text">ask us</span></h2>
           </div>
-          {FAQ.map((f) => (
+          {questions.map((f) => (
             <details className="card faq-item" key={f.q}>
               <summary>{f.q}</summary>
               <p>{f.a}</p>
@@ -290,8 +296,8 @@ export default function Landing() {
       </main>
 
       <SiteFooter />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }} />
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_LD) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd(name)) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd(name)) }} />
     </>
   );
 }

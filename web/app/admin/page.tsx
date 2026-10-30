@@ -3,6 +3,7 @@
 import { api } from '@/lib/api';
 import { bytes, duration } from '@/lib/format';
 import { usePoll } from '@/lib/hooks';
+import { useSiteName } from '@/components/BrandProvider';
 
 function Meter({ label, used, total, text, calm }: { label: string; used: number; total: number; text: string; calm?: boolean }) {
   const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
@@ -15,6 +16,7 @@ function Meter({ label, used, total, text, calm }: { label: string; used: number
 }
 
 export default function AdminOverview() {
+  const siteName = useSiteName();
   const { data: s, error } = usePoll(() => api.admin.stats(), 8000);
   if (error && !s) return <div className="error-box">{error}</div>;
   if (!s) return <div className="center-screen"><span className="spinner" /></div>;
@@ -29,7 +31,7 @@ export default function AdminOverview() {
       <div className="page-head" style={{ marginBottom: 0 }}>
         <div>
           <h1>Platform <span className="serif grad-text">overview</span></h1>
-          <p>Live status of everything running on this HostX server.</p>
+          <p>Live status of everything running on this {siteName} server.</p>
         </div>
         <span className={`chip ${platform.runner === 'docker' ? '' : 'warn'}`}><i className="dot" />{platform.runner === 'docker' ? 'Docker isolated' : 'Dev mode (no isolation)'}</span>
       </div>

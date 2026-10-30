@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
   title: 'Forgot password',
-  description: 'Get a link to reset your HostX password.',
+  description: 'Get a link to reset your password.',
   robots: { index: false, follow: false },
 };
 

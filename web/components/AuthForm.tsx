@@ -8,6 +8,7 @@ import { useAuth } from '@/lib/auth';
 import { Icon } from './Icon';
 import { Nav } from './Nav';
 import { PasswordInput } from './PasswordInput';
+import { useSiteName } from './BrandProvider';
 
 const GITHUB_ERRORS: Record<string, string> = {
   expired: 'The GitHub sign-in took too long or was opened in another browser. Please try again.',
@@ -20,6 +21,7 @@ const GITHUB_ERRORS: Record<string, string> = {
 };
 
 export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
+  const siteName = useSiteName();
   const { user, loading, signIn, signUp } = useAuth();
   const router = useRouter();
   const [name, setName] = useState('');
@@ -128,7 +130,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
 
           <p className="auth-foot">
             {isLogin ? (
-              <>New to HostX? <Link href="/register">Create an account</Link></>
+              <>New to {siteName}? <Link href="/register">Create an account</Link></>
             ) : (
               <>Already have an account? <Link href="/login">Sign in</Link></>
             )}

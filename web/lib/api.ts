@@ -49,7 +49,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown, retried 
       ...(body !== undefined ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {}),
     });
   } catch {
-    throw new ApiError(0, 'Cannot reach the HostX engine. Is it running on ' + BASE + '?');
+    throw new ApiError(0, 'Cannot reach the server. Is the engine running on ' + BASE + '?');
   }
 
   if (res.status === 401 && !retried && !NO_REFRESH.some((p) => path.startsWith(p))) {

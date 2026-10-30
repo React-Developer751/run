@@ -1,18 +1,24 @@
 import type { Metadata } from 'next';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
+import { LEGAL, pageMetadata } from '@/lib/site';
+import { getSiteName } from '@/lib/brand';
 
-export const metadata: Metadata = pageMetadata({
-  title: 'Acceptable Use Policy',
-  description: `What you may and may not host on ${SITE_NAME}, and how to report abuse.`,
-  path: '/acceptable-use',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const siteName = await getSiteName();
+  return pageMetadata({
+    title: 'Acceptable Use Policy',
+    description: `What you may and may not host on ${siteName}, and how to report abuse.`,
+    path: '/acceptable-use',
+    name: siteName,
+  });
+}
 
-export default function AcceptableUsePage() {
+export default async function AcceptableUsePage() {
+  const siteName = await getSiteName();
   return (
     <LegalPage title="Acceptable Use Policy">
       <p>
-        {SITE_NAME} is shared infrastructure. To keep it safe and fast for everyone, you may not use it to host, build or run anything that:
+        {siteName} is shared infrastructure. To keep it safe and fast for everyone, you may not use it to host, build or run anything that:
       </p>
       <ul>
         <li>is illegal in India or where you operate, or infringes copyright, trademarks or other rights;</li>

@@ -12,7 +12,7 @@ import { DeployService, assertCanStart, assertCanStop } from '../services/deploy
 import { StorageMonitorService } from '../services/storage-monitor.service.js';
 import { DeployLog } from '../services/log.service.js';
 import { RunnerService } from '../services/runner.service.js';
-import { Store, type Project, type User } from '../services/store.service.js';
+import { Store, DEFAULT_SITE_NAME, SITE_NAME_PATTERN, siteName, type Project, type User } from '../services/store.service.js';
 import { toPublicDeployment } from './deploy.controller.js';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -344,6 +344,16 @@ export class AdminController {
       if (typeof body.allowSignup !== 'boolean') throw new HttpError(400, 'allowSignup must be true or false');
       patch.allowSignup = body.allowSignup;
     }
+    if (body.siteName !== undefined) {
+      // null or "" = back to the default name.
+      if (body.siteName !== null && typeof body.siteName !== 'string') throw new HttpError(400, 'siteName must be text');
+      const name = typeof body.siteName === 'string' ? body.siteName.trim().replace(/\s+/g, ' ') : '';
+      if (name && !SITE_NAME_PATTERN.test(name)) {
+        throw new HttpError(400, 'Website name: 2-40 characters, letters, numbers, spaces and . & \' ! + _ - only');
+      }
+      const next = name && name !== DEFAULT_SITE_NAME ? name : null;
+      if (next !== (Store.settings().siteName ?? null)) patch.siteName = next;
+    }
     if (body.maxProjectsPerUser !== undefined) {
       const v = body.maxProjectsPerUser;
       if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 100) throw new HttpError(400, 'maxProjectsPerUser must be a whole number 0-100');
@@ -425,6 +435,8 @@ export class AdminController {
 function effectiveSettings() {
   const s = Store.settings();
   return {
+    siteName: siteName(),
+    defaultSiteName: DEFAULT_SITE_NAME,
     allowSignup: s.allowSignup ?? config.allowSignup,
     maxProjectsPerUser: s.maxProjectsPerUser ?? config.limits.maxProjectsPerUser,
     billingEnabled: billingEnabled(),

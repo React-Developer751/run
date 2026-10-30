@@ -1,12 +1,17 @@
 import type { Metadata } from 'next';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
+import { LEGAL, pageMetadata } from '@/lib/site';
+import { getSiteName } from '@/lib/brand';
 
-export const metadata: Metadata = pageMetadata({
-  title: 'Contact us',
-  description: `How to reach the ${SITE_NAME} team for support, billing, abuse reports and grievances.`,
-  path: '/contact',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const siteName = await getSiteName();
+  return pageMetadata({
+    title: 'Contact us',
+    description: `How to reach the ${siteName} team for support, billing, abuse reports and grievances.`,
+    path: '/contact',
+    name: siteName,
+  });
+}
 
 export default function ContactPage() {
   return (

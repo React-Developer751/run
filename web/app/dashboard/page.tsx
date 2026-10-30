@@ -10,6 +10,7 @@ import { api } from '@/lib/api';
 import { useRequireAuth } from '@/lib/auth';
 import { repoLabel, timeAgo } from '@/lib/format';
 import type { Project } from '@/lib/types';
+import { useSiteName } from '@/components/BrandProvider';
 
 type FilterId = 'all' | 'active' | 'paused' | 'archived' | 'failed';
 type TypeFilter = 'all' | 'node' | 'static';
@@ -26,6 +27,7 @@ const FILTER_KEY = 'hostx:dashboard-filter';
 const kindOf = (p: Project) => p.kind ?? p.config.kind ?? 'node';
 
 export default function Dashboard() {
+  const siteName = useSiteName();
   const user = useRequireAuth();
   const router = useRouter();
   const [filter, setFilterState] = useState<FilterId>('all');
@@ -92,7 +94,7 @@ export default function Dashboard() {
         <div className="page-head">
           <div>
             <h1>Hi {user.name.split(' ')[0]}, <span className="serif grad-text">your projects</span></h1>
-            <p>Everything you have deployed with HostX.</p>
+            <p>Everything you have deployed with {siteName}.</p>
           </div>
           <Link href="/new" className="btn btn-primary"><Icon name="plus" /> New deploy</Link>
         </div>

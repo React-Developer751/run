@@ -9,6 +9,7 @@ import { useRequireAuth } from '@/lib/auth';
 import { timeAgo } from '@/lib/format';
 import { usePoll } from '@/lib/hooks';
 import type { Project, Ticket, TicketCategory } from '@/lib/types';
+import { useSiteName } from '@/components/BrandProvider';
 
 const CATEGORIES = Object.keys(CATEGORY_LABEL) as TicketCategory[];
 
@@ -19,6 +20,7 @@ function readUrl(): { id: string | null; isNew: boolean } {
 }
 
 function NewRequest({ projects, onCreated, onCancel }: { projects: Project[]; onCreated: (t: Ticket) => void; onCancel?: () => void }) {
+  const siteName = useSiteName();
   const [category, setCategory] = useState<TicketCategory>('deploy');
   const [projectId, setProjectId] = useState('');
   const [subject, setSubject] = useState('');
@@ -44,7 +46,7 @@ function NewRequest({ projects, onCreated, onCancel }: { projects: Project[]; on
       <div>
         <h2 style={{ fontSize: 18 }}>Contact support</h2>
         <p className="muted" style={{ marginTop: 6, fontSize: 14 }}>
-          Report a problem, a complaint or a question. The HostX team gets it right away and replies here (you also get an email).
+          Report a problem, a complaint or a question. The {siteName} team gets it right away and replies here (you also get an email).
         </p>
       </div>
       <div className="grid-form">
@@ -85,6 +87,7 @@ function NewRequest({ projects, onCreated, onCancel }: { projects: Project[]; on
 }
 
 export default function SupportPage() {
+  const siteName = useSiteName();
   const user = useRequireAuth();
   const { data, error, reload } = usePoll(() => api.support.tickets(), 20_000, Boolean(user));
   const [projects, setProjects] = useState<Project[]>([]);
@@ -143,7 +146,7 @@ export default function SupportPage() {
         <div className="page-head">
           <div>
             <h1>Support</h1>
-            <p>Problems, complaints or questions: talk to the HostX team. Replies show up here.</p>
+            <p>Problems, complaints or questions: talk to the {siteName} team. Replies show up here.</p>
           </div>
           {!showForm && <button className="btn btn-primary" onClick={() => go(null, true)}><Icon name="plus" /> New request</button>}
         </div>

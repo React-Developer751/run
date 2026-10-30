@@ -11,6 +11,7 @@ import { useAuth, useRequireAuth } from '@/lib/auth';
 import { slugPreview, timeAgo } from '@/lib/format';
 import type { BuildConfig, GitHubRepo, GitHubStatus, ScanFolder } from '@/lib/types';
 import { GITHUB_RESULT } from '@/lib/github-result';
+import { useSiteName } from '@/components/BrandProvider';
 
 type Kind = BuildConfig['kind'];
 
@@ -45,6 +46,7 @@ function pickFolder(folders: ScanFolder[], kind: Kind): ScanFolder | undefined {
 }
 
 export default function NewDeploy() {
+  const siteName = useSiteName();
   const user = useRequireAuth();
   const { reload } = useAuth();
   const router = useRouter();
@@ -283,9 +285,9 @@ export default function NewDeploy() {
                   {!user.github ? (
                     <span>Connect GitHub to see all your repositories here (private ones too) and deploy on every push.</span>
                   ) : repos && repos.length === 0 && !repoError ? (
-                    <span>HostX cannot see any of your repositories yet. Choose which ones it may access.</span>
+                    <span>{siteName} cannot see any of your repositories yet. Choose which ones it may access.</span>
                   ) : (
-                    <span>Missing a repository? Give HostX access to it on GitHub.</span>
+                    <span>Missing a repository? Give {siteName} access to it on GitHub.</span>
                   )}
                   <a className={`btn btn-sm ${user.github && repos?.length ? '' : 'btn-primary'}`} href={github.installUrl}>
                     {user.github ? 'Configure GitHub access' : 'Connect GitHub'}

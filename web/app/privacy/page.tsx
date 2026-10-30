@@ -1,19 +1,25 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
+import { LEGAL, pageMetadata } from '@/lib/site';
+import { getSiteName } from '@/lib/brand';
 
-export const metadata: Metadata = pageMetadata({
-  title: 'Privacy Policy',
-  description: `What personal data ${SITE_NAME} collects, why, how long it is kept and how to exercise your rights.`,
-  path: '/privacy',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const siteName = await getSiteName();
+  return pageMetadata({
+    title: 'Privacy Policy',
+    description: `What personal data ${siteName} collects, why, how long it is kept and how to exercise your rights.`,
+    path: '/privacy',
+    name: siteName,
+  });
+}
 
-export default function PrivacyPage() {
+export default async function PrivacyPage() {
+  const siteName = await getSiteName();
   return (
     <LegalPage title="Privacy Policy">
       <p>
-        This policy explains how {LEGAL.company} (&quot;we&quot;) processes your personal data when you use {SITE_NAME}, in line with the
+        This policy explains how {LEGAL.company} (&quot;we&quot;) processes your personal data when you use {siteName}, in line with the
         Digital Personal Data Protection Act, 2023 and the Information Technology Act, 2000 and its rules. We collect only what we need to run
         the Service and we do not sell personal data.
       </p>

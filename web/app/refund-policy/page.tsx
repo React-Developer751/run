@@ -1,12 +1,17 @@
 import type { Metadata } from 'next';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
+import { LEGAL, pageMetadata } from '@/lib/site';
+import { getSiteName } from '@/lib/brand';
 
-export const metadata: Metadata = pageMetadata({
-  title: 'Cancellation & Refund Policy',
-  description: `How to cancel a ${SITE_NAME} subscription and when refunds are given.`,
-  path: '/refund-policy',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const siteName = await getSiteName();
+  return pageMetadata({
+    title: 'Cancellation & Refund Policy',
+    description: `How to cancel a ${siteName} subscription and when refunds are given.`,
+    path: '/refund-policy',
+    name: siteName,
+  });
+}
 
 export default function RefundPolicyPage() {
   return (

@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { Nav } from '@/components/Nav';
 import { PlanCards } from '@/components/PlanCards';
 import { SiteFooter } from '@/components/SiteFooter';
-import { SITE_NAME, SITE_URL } from '@/lib/site';
+import { getSiteName } from '@/lib/brand';
+import { SITE_URL } from '@/lib/site';
 import type { Plan } from '@/lib/types';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -21,13 +22,13 @@ async function loadPlans(): Promise<Plan[] | null> {
 }
 
 export default async function PricingPage() {
-  const plans = await loadPlans();
+  const [plans, siteName] = await Promise.all([loadPlans(), getSiteName()]);
   const jsonLd = plans && {
     '@context': 'https://schema.org',
     '@type': 'Product',
-    name: `${SITE_NAME} hosting`,
+    name: `${siteName} hosting`,
     description: 'Hosting for MERN apps: GitHub deploys, MongoDB Atlas support, HTTPS and custom domains.',
-    brand: { '@type': 'Brand', name: SITE_NAME },
+    brand: { '@type': 'Brand', name: siteName },
     offers: plans.map((p) => ({ '@type': 'Offer', name: p.name, price: String(p.priceInr), priceCurrency: 'INR', url: `${SITE_URL}/pricing` })),
   };
 

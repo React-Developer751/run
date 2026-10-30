@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { refreshSiteName } from '@/app/actions';
+import { SITE_NAME_EVENT } from '@/components/BrandProvider';
 import { api } from '@/lib/api';
 import { useToast } from '@/lib/hooks';
 import { PlanEditor } from '@/components/PlanEditor';
@@ -10,11 +12,19 @@ export default function AdminSettings() {
   const { toast, flash } = useToast();
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [limit, setLimit] = useState('');
+  const [siteName, setSiteName] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.admin.settings().then((r) => { setSettings(r.settings); setLimit(String(r.settings.maxProjectsPerUser)); }).catch((e: Error) => setError(e.message));
+    api.admin
+      .settings()
+      .then((r) => {
+        setSettings(r.settings);
+        setLimit(String(r.settings.maxProjectsPerUser));
+        setSiteName(r.settings.siteName);
+      })
+      .catch((e: Error) => setError(e.message));
   }, []);
 
   const save = async (patch: SettingsPatch, done: string): Promise<boolean> => {
@@ -24,6 +34,12 @@ export default function AdminSettings() {
       const r = await api.admin.updateSettings(patch);
       setSettings(r.settings);
       setLimit(String(r.settings.maxProjectsPerUser));
+      setSiteName(r.settings.siteName);
+      if (patch.siteName !== undefined) {
+        // This tab, every component reading the name, and the server-rendered pages (landing, legal, titles).
+        window.dispatchEvent(new CustomEvent(SITE_NAME_EVENT, { detail: r.settings.siteName }));
+        await refreshSiteName().catch(() => undefined);
+      }
       flash(done);
       return true;
     } catch (e) {
@@ -41,6 +57,44 @@ export default function AdminSettings() {
     <div className="stack" style={{ gap: 20, maxWidth: 860 }}>
       <div className="page-head" style={{ marginBottom: 0 }}><div><h1>Settings</h1><p>Platform rules. Changes apply immediately, no restart needed.</p></div></div>
       {error && <div className="error-box">{error}</div>}
+
+      <div className="card stack">
+        <div>
+          <h3 className="card-title">Website name</h3>
+          <p className="muted" style={{ marginTop: 6, fontSize: 14 }}>
+            Shown everywhere: logo, landing page, page titles, legal pages, emails and the pages visitors see when an app is paused.
+            Open pages update right away; other visitors see it within a minute.
+          </p>
+        </div>
+        <form
+          className="row"
+          style={{ flexWrap: 'wrap', alignItems: 'flex-start' }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save({ siteName: siteName.trim() }, 'Website name saved');
+          }}
+        >
+          <input
+            id="site-name"
+            className="input"
+            aria-label="Website name"
+            value={siteName}
+            onChange={(e) => setSiteName(e.target.value)}
+            maxLength={40}
+            minLength={2}
+            required
+            style={{ maxWidth: 320 }}
+            placeholder={settings.defaultSiteName}
+          />
+          <button className="btn btn-primary" disabled={busy || siteName.trim().length < 2 || siteName.trim() === settings.siteName}>Save</button>
+          {settings.siteName !== settings.defaultSiteName && (
+            <button type="button" className="btn" disabled={busy} onClick={() => window.confirm(`Go back to "${settings.defaultSiteName}"?`) && void save({ siteName: null }, 'Website name reset')}>
+              Reset to {settings.defaultSiteName}
+            </button>
+          )}
+        </form>
+        <span className="hint">2–40 characters: letters, numbers, spaces and . &amp; &apos; ! + _ -</span>
+      </div>
 
       <div className="card stack">
         <h3 className="card-title">Registration</h3>

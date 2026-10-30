@@ -1,18 +1,24 @@
 import type { Metadata } from 'next';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, SITE_NAME, pageMetadata } from '@/lib/site';
+import { LEGAL, pageMetadata } from '@/lib/site';
+import { getSiteName } from '@/lib/brand';
 
-export const metadata: Metadata = pageMetadata({
-  title: 'Delivery Policy',
-  description: `${SITE_NAME} is an online service: how and when it is delivered.`,
-  path: '/shipping-policy',
-});
+export async function generateMetadata(): Promise<Metadata> {
+  const siteName = await getSiteName();
+  return pageMetadata({
+    title: 'Delivery Policy',
+    description: `${siteName} is an online service: how and when it is delivered.`,
+    path: '/shipping-policy',
+    name: siteName,
+  });
+}
 
-export default function ShippingPolicyPage() {
+export default async function ShippingPolicyPage() {
+  const siteName = await getSiteName();
   return (
     <LegalPage title="Shipping & Delivery Policy">
       <p>
-        {SITE_NAME} is a software-as-a-service product delivered entirely online. Nothing is shipped physically and there are no shipping charges.
+        {siteName} is a software-as-a-service product delivered entirely online. Nothing is shipped physically and there are no shipping charges.
       </p>
       <ul>
         <li>The Free plan is available immediately after you create an account.</li>

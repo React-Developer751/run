@@ -1,7 +1,10 @@
 /** Public origin of the dashboard, used for canonical URLs, sitemap and social cards. Set NEXT_PUBLIC_SITE_URL in production. */
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').replace(/\/+$/, '');
-export const SITE_NAME = 'HostX';
-export const SITE_TITLE = 'HostX — Deploy your MERN app from GitHub in minutes';
+/** Name used until the admin picks another one in Admin → Settings (the engine's DEFAULT_SITE_NAME). */
+export const DEFAULT_SITE_NAME = 'HostX';
+/** Lower-case tag of the name (build-log lines, example URLs): "DeployKaro Cloud" -> "deploykaro-cloud". Same rule as the engine. */
+export const brandSlug = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'platform';
+export const siteTitle = (name: string) => `${name} — Deploy your MERN app from GitHub in minutes`;
 export const SITE_DESCRIPTION =
   'Host your MERN app like on Render: connect GitHub, plug in your MongoDB Atlas database, get free HTTPS and custom domains. No cold starts. Free plan, paid plans from ₹299/month.';
 
@@ -9,13 +12,13 @@ export const SITE_DESCRIPTION =
  * Full metadata for a public page. A page-level `openGraph` replaces the root one entirely in Next.js, so every
  * public page goes through this to keep the image, site name, locale and URL.
  */
-export function pageMetadata({ title, description, path, absoluteTitle = false }: { title: string; description: string; path: string; absoluteTitle?: boolean }) {
-  const fullTitle = absoluteTitle ? title : `${title} · ${SITE_NAME}`;
+export function pageMetadata({ title, description, path, name, absoluteTitle = false }: { title: string; description: string; path: string; name: string; absoluteTitle?: boolean }) {
+  const fullTitle = absoluteTitle ? title : `${title} · ${name}`;
   return {
     title: absoluteTitle ? { absolute: title } : title,
     description,
     alternates: { canonical: path },
-    openGraph: { type: 'website' as const, siteName: SITE_NAME, locale: 'en_US', url: path, title: fullTitle, description, images: ['/opengraph-image'] },
+    openGraph: { type: 'website' as const, siteName: name, locale: 'en_US', url: path, title: fullTitle, description, images: ['/opengraph-image'] },
     twitter: { card: 'summary_large_image' as const, title: fullTitle, description, images: ['/opengraph-image'] },
   };
 }

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
   title: 'Billing',
-  description: 'Your HostX plan, usage and subscription.',
+  description: 'Your plan, usage and subscription.',
   robots: { index: false, follow: false },
 };
 

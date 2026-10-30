@@ -362,7 +362,7 @@ export class DeployService {
       if (['queued', 'cloning', 'building', 'starting'].includes(d.status)) {
         await Store.updateDeployment(d.id, {
           status: 'failed',
-          error: 'Interrupted by a HostX restart',
+          error: 'Interrupted by a platform restart',
           finishedAt: new Date().toISOString(),
         });
       }

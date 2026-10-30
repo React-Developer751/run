@@ -3,6 +3,7 @@ import net from 'node:net';
 import tls from 'node:tls';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
+import { siteName } from './store.service.js';
 
 interface Mail {
   to: string;
@@ -128,7 +129,8 @@ async function sendSmtp(url: URL, from: string, mail: Mail): Promise<void> {
 
     const boundary = `hostx-${crypto.randomBytes(8).toString('hex')}`;
     const message = [
-      `From: ${from}`,
+      // Display name follows the platform name the admin chose; the address stays HOSTX_MAIL_FROM's.
+      `From: ${encodeHeader(`"${siteName()}"`)} <${addressOf(from)}>`,
       `To: ${mail.to}`,
       `Subject: ${encodeHeader(mail.subject)}`,
       `Date: ${new Date().toUTCString()}`,
@@ -192,43 +194,43 @@ export class MailService {
   static verifyEmail(to: string, name: string, url: string): Promise<boolean> {
     const body = layout(
       'Confirm your email address',
-      `Hi ${name}, welcome to HostX! Confirm that this is your email address to start deploying.`,
+      `Hi ${name}, welcome to ${siteName()}! Confirm that this is your email address to start deploying.`,
       { label: 'Confirm email', url },
       'This link expires in 24 hours. If you did not create an account, you can ignore this email.',
     );
-    return this.send({ to, subject: 'Confirm your HostX email address', ...body });
+    return this.send({ to, subject: `Confirm your ${siteName()} email address`, ...body });
   }
 
   /** Incident about one of the user's apps (crash, failed auto-deploy). */
   static appAlert(to: string, name: string, title: string, message: string, url: string): Promise<boolean> {
     const body = layout(title, `Hi ${name}, ${message}`, { label: 'Open the project', url }, 'You get at most one email like this per app per hour.');
-    return this.send({ to, subject: `[HostX] ${title}`, ...body });
+    return this.send({ to, subject: `[${siteName()}] ${title}`, ...body });
   }
 
   /** Platform alert for administrators (failed deploys, storage running out). */
   static adminAlert(to: string, title: string, message: string, url: string, label = 'Open admin notifications'): Promise<boolean> {
-    const body = layout(title, message, { label, url }, 'You receive this because you are a HostX administrator.');
-    return this.send({ to, subject: `[HostX admin] ${title}`, ...body });
+    const body = layout(title, message, { label, url }, `You receive this because you are a ${siteName()} administrator.`);
+    return this.send({ to, subject: `[${siteName()} admin] ${title}`, ...body });
   }
 
   /** An administrator answered a support request. The reply itself is only shown in the dashboard. */
   static supportReply(to: string, name: string, subject: string, url: string): Promise<boolean> {
     const body = layout(
       'Your support request has a reply',
-      `Hi ${name}, the HostX team replied to your request "${subject}". Open it to read the answer and continue the conversation.`,
+      `Hi ${name}, the ${siteName()} team replied to your request "${subject}". Open it to read the answer and continue the conversation.`,
       { label: 'Read the reply', url },
-      'You receive this because you contacted HostX support.',
+      `You receive this because you contacted ${siteName()} support.`,
     );
-    return this.send({ to, subject: `[HostX] Re: ${subject}`, ...body });
+    return this.send({ to, subject: `[${siteName()}] Re: ${subject}`, ...body });
   }
 
   static resetPassword(to: string, name: string, url: string): Promise<boolean> {
     const body = layout(
       'Reset your password',
-      `Hi ${name}, somebody (hopefully you) asked to reset the password of your HostX account.`,
+      `Hi ${name}, somebody (hopefully you) asked to reset the password of your ${siteName()} account.`,
       { label: 'Choose a new password', url },
       'This link expires in 1 hour and works once. If you did not ask for it, ignore this email: your password stays the same.',
     );
-    return this.send({ to, subject: 'Reset your HostX password', ...body });
+    return this.send({ to, subject: `Reset your ${siteName()} password`, ...body });
   }
 }

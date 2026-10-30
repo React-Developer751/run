@@ -20,7 +20,7 @@ import { DeployLog } from '../services/log.service.js';
 import { DomainService } from '../services/domain.service.js';
 import { billingEnabled } from '../config/plans.js';
 import { RunnerService } from '../services/runner.service.js';
-import { Store, assertRoomFor, kindOf, limitsFor, type Deployment, type Project } from '../services/store.service.js';
+import { Store, siteName, assertRoomFor, kindOf, limitsFor, type Deployment, type Project } from '../services/store.service.js';
 
 export const toPublicProject = (p: Project) => ({
   id: p.id,
@@ -99,6 +99,7 @@ export class DeployController {
   static health() {
     return {
       status: 'ok',
+      siteName: siteName(),
       runner: RunnerService.current().name,
       urlTemplate: projectUrl('{slug}'),
       // MongoDB Atlas "Network Access" needs the address apps connect from.

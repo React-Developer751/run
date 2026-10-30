@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { Db } from './db.service.js';
 import { DeployLog } from './log.service.js';
 import { Vault } from './vault.service.js';
+import { setSiteName } from './brand.js';
 
 export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'paused' | 'archived';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
@@ -68,7 +69,11 @@ export interface Settings {
   maxProjectsPerUser: number | null;
   /** Admin changes to plan limits, prices and Razorpay plan ids (null = env defaults). */
   plans?: PlanOverrides | null;
+  /** Platform name shown everywhere (dashboard, emails, app status pages). null = DEFAULT_SITE_NAME. */
+  siteName?: string | null;
 }
+
+export { DEFAULT_SITE_NAME, SITE_NAME_PATTERN, siteName } from './brand.js';
 
 /** One refresh token. Rotated on every use; rows of one login share a familyId so theft can revoke them all. */
 export interface Session {
@@ -333,6 +338,7 @@ export class Store {
     };
 
     setPlanOverrides(this.db.settings.plans);
+    setSiteName(this.db.settings.siteName);
 
     // Accounts created before roles existed: make sure somebody can administer the platform.
     if (this.db.users.length > 0 && !this.db.users.some((u) => u.role === 'admin')) {
@@ -529,6 +535,7 @@ export class Store {
     Db.put('settings', { key: 'platform', doc: JSON.stringify(next) }, 'key');
     Object.assign(this.db.settings, patch);
     if ('plans' in patch) setPlanOverrides(this.db.settings.plans);
+    if ('siteName' in patch) setSiteName(this.db.settings.siteName);
     return this.db.settings;
   }
 

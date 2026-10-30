@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
   title: 'Settings',
-  description: 'Platform settings for this HostX server.',
+  description: 'Platform settings for this server.',
 };
 
 export default function Layout({ children }: { children: ReactNode }) {

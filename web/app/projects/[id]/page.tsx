@@ -16,6 +16,8 @@ import { useRequireAuth } from '@/lib/auth';
 import { repoLabel, timeAgo, triggerLabel } from '@/lib/format';
 import type { BuildConfig, Deployment, Project, ProjectEvent } from '@/lib/types';
 import { FeedbackPrompt } from '@/components/FeedbackPrompt';
+import { useSiteName } from '@/components/BrandProvider';
+import { brandSlug } from '@/lib/site';
 
 const EVENT_ICON: Record<ProjectEvent['kind'], string> = { crash: '🔴', restart: '🟠', recovered: '🟢', rollback: '↩️', paused: '⏸️', archived: '📦' };
 
@@ -31,6 +33,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
 
 /** Polls one deployment's build log until it reaches a final state. */
 function BuildLogs({ projectId, deployment, onFinished }: { projectId: string; deployment: Deployment; onFinished: () => void }) {
+  const siteName = useSiteName();
   const [lines, setLines] = useState<string[]>([]);
   const [status, setStatus] = useState(deployment.status);
   const finished = useRef(onFinished);
@@ -60,7 +63,7 @@ function BuildLogs({ projectId, deployment, onFinished }: { projectId: string; d
         // 4xx (deleted, not yours, signed out) will not fix itself: stop polling and say why.
         const status = (e as { status?: number }).status ?? 0;
         if (status >= 400 && status < 500) {
-          if (!cancelled) setLines((prev) => [...prev, `[hostx] Could not load the log: ${(e as Error).message}`]);
+          if (!cancelled) setLines((prev) => [...prev, `[${brandSlug(siteName)}] Could not load the log: ${(e as Error).message}`]);
           return;
         }
         failures++;
@@ -78,6 +81,7 @@ function BuildLogs({ projectId, deployment, onFinished }: { projectId: string; d
 }
 
 export default function ProjectPage() {
+  const siteName = useSiteName();
   const user = useRequireAuth();
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
@@ -151,8 +155,8 @@ export default function ProjectPage() {
   const deploying = project ? isBusy(project.status) : false;
 
   useEffect(() => {
-    if (project) document.title = `${project.name} · HostX`;
-  }, [project?.name]);
+    if (project) document.title = `${project.name} · ${siteName}`;
+  }, [project?.name, siteName]);
   useEffect(() => {
     if (!deploying) return;
     const t = setInterval(load, 2000);
@@ -422,7 +426,7 @@ export default function ProjectPage() {
             <div className="card stack">
               <div>
                 <h3 style={{ fontSize: 18 }}>Repository</h3>
-                <p className="muted" style={{ marginTop: 6 }}>Where HostX gets the code. Change it if the repository was renamed or moved; the next deploy uses it.</p>
+                <p className="muted" style={{ marginTop: 6 }}>Where {siteName} gets the code. Change it if the repository was renamed or moved; the next deploy uses it.</p>
               </div>
               <div className="field">
                 <label className="label" htmlFor="repo-url">GitHub repository</label>
@@ -487,13 +491,13 @@ export default function ProjectPage() {
                 />
                 <span>
                   <b>Deploy on every new commit</b>
-                  <small>HostX checks GitHub about once a minute. No setup needed.</small>
+                  <small>{siteName} checks GitHub about once a minute. No setup needed.</small>
                 </span>
               </label>
               <details className="webhook">
                 <summary>Instant deploys with a GitHub webhook (optional)</summary>
                 <div className="stack" style={{ gap: 12, marginTop: 14 }}>
-                  <p className="muted">Needs a HostX API reachable from the internet. In GitHub: <b>Settings → Webhooks → Add webhook</b>, content type <span className="mono">application/json</span>, event <b>Just the push event</b>.</p>
+                  <p className="muted">Needs the {siteName} API reachable from the internet. In GitHub: <b>Settings → Webhooks → Add webhook</b>, content type <span className="mono">application/json</span>, event <b>Just the push event</b>.</p>
                   {[{ label: 'Payload URL', value: project.webhook.url }, { label: 'Secret', value: project.webhook.secret }].map((f) => (
                     <div className="field" key={f.label}>
                       <span className="label">{f.label}</span>

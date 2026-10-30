@@ -4,12 +4,14 @@ import { useEffect, useState } from 'react';
 import { Stars } from '@/components/FeedbackPrompt';
 import { api } from '@/lib/api';
 import type { Testimonial } from '@/lib/types';
+import { useSiteName } from './BrandProvider';
 
 /**
  * Real feedback that users allowed to be shown and an admin picked in Admin → Feedback.
  * Renders nothing until there is at least one, so the page never shows made-up reviews.
  */
 export function Testimonials() {
+  const siteName = useSiteName();
   const [items, setItems] = useState<Testimonial[]>([]);
 
   useEffect(() => {
@@ -21,7 +23,7 @@ export function Testimonials() {
     <section className="section" id="reviews" style={{ paddingTop: 0 }}>
       <div className="container">
         <div className="section-head">
-          <span className="tag">From developers on HostX</span>
+          <span className="tag">From developers on {siteName}</span>
           <h2>What people say <span className="serif grad-text">after deploying</span></h2>
           <p>Ratings left in the dashboard right after an app went live, shared with permission.</p>
         </div>

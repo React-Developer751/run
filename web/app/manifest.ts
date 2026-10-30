@@ -1,10 +1,12 @@
 import type { MetadataRoute } from 'next';
+import { getSiteName } from '@/lib/brand';
 import { SITE_DESCRIPTION } from '@/lib/site';
 
-export default function manifest(): MetadataRoute.Manifest {
+export default async function manifest(): Promise<MetadataRoute.Manifest> {
+  const name = await getSiteName();
   return {
-    name: 'HostX',
-    short_name: 'HostX',
+    name,
+    short_name: name.length > 12 ? name.slice(0, 12).trim() : name,
     description: SITE_DESCRIPTION,
     start_url: '/dashboard',
     display: 'standalone',

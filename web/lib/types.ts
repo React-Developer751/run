@@ -98,6 +98,8 @@ export interface Health {
   serverIp?: string | null;
   github?: boolean;
   billing?: boolean;
+  /** Platform name chosen in Admin → Settings. */
+  siteName?: string;
 }
 
 export type PlanId = 'free' | 'starter' | 'pro';
@@ -229,6 +231,9 @@ export interface AdminPlan extends EditablePlan {
 }
 
 export interface PlatformSettings {
+  /** Website / platform name shown everywhere, and the built-in default it falls back to. */
+  siteName: string;
+  defaultSiteName: string;
   allowSignup: boolean;
   maxProjectsPerUser: number;
   billingEnabled: boolean;
@@ -239,6 +244,8 @@ export interface PlatformSettings {
 export type SettingsPatch = Partial<Pick<PlatformSettings, 'allowSignup' | 'maxProjectsPerUser'>> & {
   plans?: Partial<Record<PlanId, Partial<EditablePlan>>>;
   resetPlan?: PlanId;
+  /** null or "" = back to the default name. */
+  siteName?: string | null;
 };
 
 export interface AdminStats {

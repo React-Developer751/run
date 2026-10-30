@@ -7,11 +7,13 @@ import { api } from '@/lib/api';
 import { timeAgo } from '@/lib/format';
 import { usePoll, useToast } from '@/lib/hooks';
 import type { AdminTicket, TicketStatus } from '@/lib/types';
+import { useSiteName } from '@/components/BrandProvider';
 
 type Filter = 'active' | TicketStatus | 'emergency' | 'all';
 const FILTERS: Array<[Filter, string]> = [['active', 'Needs reply'], ['answered', 'Answered'], ['closed', 'Closed'], ['emergency', 'Emergency'], ['all', 'All']];
 
 export default function AdminSupport() {
+  const siteName = useSiteName();
   const { data, error, reload } = usePoll(() => api.admin.tickets(), 15_000);
   const [filter, setFilter] = useState<Filter>('active');
   const [query, setQuery] = useState('');
@@ -83,7 +85,7 @@ export default function AdminSupport() {
       <div className="page-head" style={{ marginBottom: 0 }}>
         <div>
           <h1>Support</h1>
-          <p>Requests and complaints from users. Your reply appears in the user&apos;s Support page and they get an email. Replies are signed “HostX Support”.</p>
+          <p>Requests and complaints from users. Your reply appears in the user&apos;s Support page and they get an email. Replies are signed “{siteName} Support”.</p>
         </div>
       </div>
       {error && <div className="error-box">{error}</div>}

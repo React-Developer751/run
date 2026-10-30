@@ -9,8 +9,10 @@ import { useRequireAuth } from '@/lib/auth';
 import type { GitHubStatus } from '@/lib/types';
 import { GITHUB_RESULT } from '@/lib/github-result';
 import { PasswordInput } from '@/components/PasswordInput';
+import { useSiteName } from '@/components/BrandProvider';
 
 function GitHubCard() {
+  const siteName = useSiteName();
   const { reload } = useAuth();
   const [status, setStatus] = useState<GitHubStatus | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -32,7 +34,7 @@ function GitHubCard() {
       <div>
         <h2 style={{ fontSize: 18 }}>GitHub</h2>
         <p className="muted" style={{ marginTop: 6 }}>
-          Connect GitHub to deploy <b>private repositories</b> and get instant deploys on every push. You choose which repositories HostX can read.
+          Connect GitHub to deploy <b>private repositories</b> and get instant deploys on every push. You choose which repositories {siteName} can read.
         </p>
       </div>
       {result && <div className={result.ok ? 'notice-box' : 'error-box'} role="status">{result.text}</div>}
@@ -49,7 +51,7 @@ function GitHubCard() {
               className="btn btn-danger"
               disabled={busy}
               onClick={async () => {
-                if (!window.confirm('Disconnect GitHub from HostX? Existing projects keep deploying until you uninstall the app on GitHub.')) return;
+                if (!window.confirm(`Disconnect GitHub from ${siteName}? Existing projects keep deploying until you uninstall the app on GitHub.`)) return;
                 setBusy(true);
                 await api.github.unlink().catch((e: Error) => setResult({ ok: false, text: e.message }));
                 setStatus(await api.github.status().catch(() => null));

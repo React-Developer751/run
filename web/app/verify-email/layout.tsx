@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
   title: 'Confirm email',
-  description: 'Confirm the email address of your HostX account.',
+  description: 'Confirm the email address of your account.',
   robots: { index: false, follow: false },
 };
 

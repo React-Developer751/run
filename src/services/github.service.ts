@@ -3,7 +3,7 @@ import { config } from '../config/index.js';
 import { HttpError } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { AuthService } from './auth.service.js';
-import { Store, type User } from './store.service.js';
+import { Store, siteName, type User } from './store.service.js';
 
 const API = 'https://api.github.com';
 const STATE_TTL_MS = 15 * 60 * 1000;
@@ -84,7 +84,7 @@ export class GitHubService {
       return r.token;
     } catch (err) {
       if ((err as { status?: number }).status === 404) {
-        throw new Error('HostX no longer has access to this repository on GitHub. Reinstall or reconfigure the HostX GitHub App.');
+        throw new Error(`${siteName()} no longer has access to this repository on GitHub. Reinstall or reconfigure the ${siteName()} GitHub App.`);
       }
       throw err;
     }
@@ -334,7 +334,7 @@ export class GitHubService {
     const fullName = /^https:\/\/github\.com\/(.+?)\.git$/.exec(repoUrl)?.[1]?.toLowerCase();
     const repos = await this.installationRepos(id);
     if (!repos.some((r) => r.fullName.toLowerCase() === fullName)) {
-      throw new HttpError(403, 'The HostX GitHub App does not have access to this repository. Add it in the app settings on GitHub.');
+      throw new HttpError(403, `The ${siteName()} GitHub App does not have access to this repository. Add it in the app settings on GitHub.`);
     }
     return id;
   }

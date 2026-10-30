@@ -6,7 +6,7 @@ import { config } from '../config/index.js';
 import { clientIp } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { InactivityService } from './inactivity.service.js';
-import { Store, type Project } from './store.service.js';
+import { Store, siteName, type Project } from './store.service.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -41,7 +41,7 @@ function statusPage(res: http.ServerResponse, status: number, title: string, mes
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(900px 500px at 50% -120px,rgba(124,92,255,.22),transparent 70%),radial-gradient(700px 460px at 100% 10%,rgba(236,72,153,.14),transparent 70%),#f4f2ff;color:#1b1646;font-family:ui-sans-serif,system-ui,sans-serif}
 main{text-align:center;padding:24px}h1{font-size:72px;margin:0;background:linear-gradient(135deg,#5b4bf0,#8b5cf6 48%,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent}
 h2{margin:6px 0 10px}p{color:#58547f;max-width:420px;line-height:1.6;margin:0 auto 22px}small{color:#8681ad;letter-spacing:.2em;text-transform:uppercase;font-size:11px}</style></head>
-<body><main><h1>${status}</h1><h2>${escapeHtml(title)}</h2><p>${escapeHtml(message)}</p><small>Hosted on HostX</small></main></body></html>`;
+<body><main><h1>${status}</h1><h2>${escapeHtml(title)}</h2><p>${escapeHtml(message)}</p><small>Hosted on ${escapeHtml(siteName())}</small></main></body></html>`;
   res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(html);
 }
@@ -131,9 +131,9 @@ export class ProxyService {
               : project.status === 'crashed'
                 ? 'This app crashed. Its owner has been notified.'
                 : project.status === 'paused'
-                  ? 'This app is paused because it had no visitors for a while. Its owner can resume it from the HostX dashboard in one click.'
+                  ? `This app is paused because it had no visitors for a while. Its owner can resume it from the ${siteName()} dashboard in one click.`
                   : project.status === 'archived'
-                    ? 'This app was archived after a long time without visitors. Its owner can redeploy it from the HostX dashboard.'
+                    ? `This app was archived after a long time without visitors. Its owner can redeploy it from the ${siteName()} dashboard.`
                     : 'The last deployment of this app failed.';
         return statusPage(res, 503, 'App unavailable', msg);
       }

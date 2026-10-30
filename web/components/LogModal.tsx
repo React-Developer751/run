@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { brandSlug } from '@/lib/site';
 import type { DeploymentStatus } from '@/lib/types';
 import { LogViewer } from './LogViewer';
 import { Modal } from './Modal';
 import { StatusBadge } from './StatusBadge';
+import { useSiteName } from './BrandProvider';
 
 /** Admin log viewer: build log of a deployment (live-polled) plus the app's runtime output. */
 export function LogModal({ projectId, deploymentId, title, onClose }: { projectId: string; deploymentId: string | null; title: string; onClose: () => void }) {
+  const siteName = useSiteName();
   const [tab, setTab] = useState<'build' | 'runtime'>(deploymentId ? 'build' : 'runtime');
   const [lines, setLines] = useState<string[]>([]);
   const [status, setStatus] = useState<DeploymentStatus | null>(null);
@@ -34,7 +37,7 @@ export function LogModal({ projectId, deploymentId, title, onClose }: { projectI
       } catch (e) {
         const status = (e as { status?: number }).status ?? 0;
         if (status >= 400 && status < 500) {
-          if (!cancelled) setLines((p) => [...p, `[hostx] Could not load the log: ${(e as Error).message}`]);
+          if (!cancelled) setLines((p) => [...p, `[${brandSlug(siteName)}] Could not load the log: ${(e as Error).message}`]);
           return;
         }
         failures++;

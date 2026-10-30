@@ -1,9 +1,12 @@
 'use client';
 
 import { useEffect, useRef, type ReactNode } from 'react';
+import { brandSlug } from '@/lib/site';
+import { useSiteName } from './BrandProvider';
 
-function lineClass(line: string): string | undefined {
-  if (line.startsWith('[hostx]')) return /fail/i.test(line) ? 'err' : /Live at/.test(line) ? 'okl' : 'sys';
+// Platform lines start with "[<name>]"; logs written before a rename keep the old "[hostx]" tag.
+function lineClass(line: string, tag: string): string | undefined {
+  if (line.startsWith(tag) || line.startsWith('[hostx]')) return /fail/i.test(line) ? 'err' : /Live at/.test(line) ? 'okl' : 'sys';
   if (/\b(error|ERR!|fatal)\b/i.test(line)) return 'err';
   if (/\bwarn/i.test(line)) return 'wrn';
   return undefined;
@@ -20,6 +23,7 @@ export function LogViewer({
   footer?: ReactNode;
   empty?: string;
 }) {
+  const tag = `[${brandSlug(useSiteName())}]`;
   const ref = useRef<HTMLPreElement>(null);
   const stick = useRef(true);
 
@@ -44,7 +48,7 @@ export function LogViewer({
         {lines.length === 0
           ? empty
           : lines.map((line, i) => (
-              <div key={i} className={lineClass(line)}>
+              <div key={i} className={lineClass(line, tag)}>
                 {line}
               </div>
             ))}

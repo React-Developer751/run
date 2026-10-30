@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
 import path from 'node:path';
 import { config } from '../config/index.js';
+import { siteSlug } from './brand.js';
 
 const deployLogPath = (deploymentId: string) => path.join(config.logsDir, `${deploymentId}.log`);
 export const runtimeLogPath = (projectId: string) => path.join(config.logsDir, `runtime-${projectId}.log`);
@@ -28,7 +29,7 @@ export class DeployLog {
     if (this.truncated) return;
     if (this.bytes > config.limits.maxLogBytes) {
       this.truncated = true;
-      this.stream.write('[hostx] Log limit reached, further output is truncated.\n');
+      this.stream.write(`[${siteSlug()}] Log limit reached, further output is truncated.\n`);
       return;
     }
     const text = redactPaths(line.slice(0, 2000));
@@ -36,7 +37,7 @@ export class DeployLog {
     this.stream.write(`${text}\n`);
   };
 
-  system = (line: string): void => this.write(`[hostx] ${line}`);
+  system = (line: string): void => this.write(`[${siteSlug()}] ${line}`);
 
   close(): Promise<void> {
     return new Promise((resolve) => this.stream.end(resolve));
