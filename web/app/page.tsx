@@ -4,6 +4,7 @@ import { Icon, type IconName } from '@/components/Icon';
 import { SiteFooter } from '@/components/SiteFooter';
 import { SITE_NAME, SITE_URL, pageMetadata } from '@/lib/site';
 import { Nav } from '@/components/Nav';
+import { Testimonials } from '@/components/Testimonials';
 
 const LANDING_TITLE = 'HostX — Deploy your MERN app from GitHub in minutes';
 const LANDING_DESCRIPTION =
@@ -44,6 +45,54 @@ const FEATURES: Array<{ icon: IconName; title: string; text: string; span: strin
   { icon: 'refresh', title: 'Never sleeps, never breaks', text: 'No 15-minute sleep and no cold starts: apps stay on while people use them (free web services pause only after 7 days without a single visit). Redeploys are zero-downtime, crashes restart automatically, and you can roll back in one click.', span: 'span-3' },
   { icon: 'bolt', title: 'Private repos & auto-deploy', text: 'Connect GitHub once. Every push to your branch goes live on its own; a failed build never replaces a working version.', span: 'span-3' },
 ];
+
+// What HostX detects and runs today: static builds (Vite, CRA) and Node.js servers.
+const STACK = ['React', 'Vite', 'Create React App', 'Vue', 'Svelte', 'Next.js', 'Express', 'Fastify', 'NestJS', 'Socket.IO', 'Mongoose', 'Prisma'];
+
+// Illustrative dashboard snapshot (not live data): what a typical MERN account looks like after a week.
+const PREVIEW: Array<{ name: string; url: string; status: 'Live' | 'Deploying' | 'Paused'; type: 'Web Service' | 'Static Site'; runtime: string; branch: string; at: string }> = [
+  { name: 'shopkart-api', url: 'shopkart-api.hostx.app', status: 'Live', type: 'Web Service', runtime: 'Express · Node 22', branch: 'main', at: '3 min ago' },
+  { name: 'shopkart-web', url: 'shopkart.in', status: 'Live', type: 'Static Site', runtime: 'Vite + React', branch: 'main', at: '3 min ago' },
+  { name: 'campus-chat', url: 'campus-chat.hostx.app', status: 'Deploying', type: 'Web Service', runtime: 'Socket.IO · Node 20', branch: 'dev', at: 'just now' },
+  { name: 'portfolio', url: 'portfolio-ankit.hostx.app', status: 'Live', type: 'Static Site', runtime: 'Vite', branch: 'main', at: '2 days ago' },
+  { name: 'expense-tracker-api', url: 'expense-api.hostx.app', status: 'Paused', type: 'Web Service', runtime: 'Express · Node 22', branch: 'main', at: '9 days ago' },
+];
+
+const EXAMPLES: Array<{ title: string; repo: string; tree: string[]; result: string[] }> = [
+  {
+    title: 'MERN e-commerce',
+    repo: 'github.com/you/shopkart',
+    tree: ['backend/ — Express + Mongoose', 'frontend/ — Vite + React', '.env → MONGODB_URI, JWT_SECRET'],
+    result: ['shopkart-api → Web Service', 'shopkart-web → Static Site + your domain', 'Push to main → both redeploy'],
+  },
+  {
+    title: 'Real-time chat',
+    repo: 'github.com/you/campus-chat',
+    tree: ['server.js — Express + Socket.IO', 'package.json — "start": "node server.js"', 'client/ — React'],
+    result: ['WebSockets work out of the box', 'One URL for API and sockets', 'Crash → automatic restart'],
+  },
+  {
+    title: 'Final-year project API',
+    repo: 'github.com/you/attendance-api',
+    tree: ['src/ — NestJS', 'engines.node: "20.x"', 'Atlas M0 free cluster'],
+    result: ['Node 20 picked from engines', 'Logs for your viva demo', 'Rollback if a commit breaks it'],
+  },
+];
+
+const FAQ: Array<{ q: string; a: string }> = [
+  { q: 'Is the free plan really free?', a: 'Yes. 5 Web Services and 10 Static Sites with HTTPS, auto-deploys and build logs. No credit card. A free web service that gets no visits for 7 days is paused; you resume it from the dashboard in one click. Static sites are never paused.' },
+  { q: 'Do my apps sleep like on other free hosts?', a: 'No. There is no 15-minute sleep and no cold start: while people use your app it stays running. Only an app nobody has opened for a full week is paused, and nothing is deleted.' },
+  { q: 'Where does my MongoDB database live?', a: 'In your own MongoDB Atlas account (the free M0 cluster is enough to start). Paste the connection string as MONGODB_URI in Environment; the dashboard has a step-by-step guide including the IP address to allow.' },
+  { q: 'Can I deploy a private GitHub repository?', a: 'Yes. Connect GitHub once and choose which repositories HostX may read. Every push to your branch then redeploys automatically; a failed build never replaces the version that is live.' },
+  { q: 'My repo has frontend and backend folders. How do I deploy it?', a: 'Deploy it twice: pick backend/ as a Web Service and frontend/ as a Static Site. HostX scans the repository and lists every folder with a package.json, so there are no paths to type.' },
+  { q: 'What happens if I need help?', a: 'Open Support in your dashboard. Requests go straight to the HostX team and replies appear there (and by email). Mark it Emergency if a live app is down.' },
+];
+
+const FAQ_LD = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: FAQ.map((f) => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })),
+};
 
 export default function Landing() {
   return (
@@ -89,12 +138,19 @@ export default function Landing() {
         </div>
       </header>
 
+      <section className="stack-strip" aria-label="Works with">
+        <div className="container">
+          <span className="dim">Works with</span>
+          <ul>{STACK.map((t) => <li key={t}>{t}</li>)}</ul>
+        </div>
+      </section>
+
       <section className="section" id="how">
         <div className="container">
           <div className="section-head">
             <span className="tag">How it works</span>
             <h2>From link to live in <span className="serif grad-text">four steps</span></h2>
-            <p>The same flow you know from Render — and your app never goes to sleep.</p>
+            <p>The same flow you know from Render, without the cold starts.</p>
           </div>
           <div className="steps">
             {STEPS.map((s) => (
@@ -133,6 +189,92 @@ export default function Landing() {
         </div>
       </section>
 
+      <section className="section" id="dashboard" style={{ paddingTop: 0 }}>
+        <div className="container">
+          <div className="section-head">
+            <span className="tag">The dashboard</span>
+            <h2>Every service, <span className="serif grad-text">one clear list</span></h2>
+            <p>Status, runtime, branch and last deploy at a glance. Filter by active, paused, archived or failed.</p>
+          </div>
+          <div className="preview-window" aria-label="Example dashboard (illustration)">
+            <div className="terminal-bar"><i /><i /><i /><span>hostx.app/dashboard · example</span></div>
+            <div className="table-card">
+              <table className="table">
+                <thead><tr><th>Service name</th><th>Status</th><th>Type</th><th>Runtime</th><th>Branch</th><th>Updated</th></tr></thead>
+                <tbody>
+                  {PREVIEW.map((r) => (
+                    <tr key={r.name}>
+                      <td><div className="cell-main"><b>{r.name}</b><small className="mono">{r.url}</small></div></td>
+                      <td><span className={`badge ${r.status === 'Live' ? 'badge-live' : r.status === 'Deploying' ? 'badge-busy' : 'badge-idle'}`}>{r.status}</span></td>
+                      <td>{r.type}</td>
+                      <td>{r.runtime}</td>
+                      <td className="mono">{r.branch}</td>
+                      <td>{r.at}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="section" id="examples" style={{ paddingTop: 0 }}>
+        <div className="container">
+          <div className="section-head">
+            <span className="tag">Real-world setups</span>
+            <h2>Projects developers <span className="serif grad-text">ship on HostX</span></h2>
+            <p>Typical repositories and what HostX turns them into. Yours probably looks like one of these.</p>
+          </div>
+          <div className="examples">
+            {EXAMPLES.map((e) => (
+              <div className="card card-hover example" key={e.title}>
+                <h3>{e.title}</h3>
+                <span className="mono dim example-repo"><Icon name="github" /> {e.repo}</span>
+                <ul className="example-tree mono">{e.tree.map((t) => <li key={t}>{t}</li>)}</ul>
+                <ul className="example-result">{e.result.map((t) => <li key={t}><Icon name="check" /> {t}</li>)}</ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="section" id="free-plan" style={{ paddingTop: 0 }}>
+        <div className="container">
+          <div className="spec-band card">
+            <div>
+              <span className="tag" style={{ color: 'var(--accent)' }}>Free plan</span>
+              <h2 style={{ fontSize: 'clamp(24px, 3vw, 34px)', marginTop: 8 }}>Enough for a full MERN project. <span className="serif grad-text">₹0.</span></h2>
+            </div>
+            <dl className="specs">
+              <div><dt>5</dt><dd>Web Services</dd></div>
+              <div><dt>10</dt><dd>Static Sites</dd></div>
+              <div><dt>512 MB</dt><dd>RAM per app</dd></div>
+              <div><dt>HTTPS</dt><dd>on every URL</dd></div>
+              <div><dt>1</dt><dd>custom domain</dd></div>
+              <div><dt>0</dt><dd>cold starts</dd></div>
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <Testimonials />
+
+      <section className="section" id="faq" style={{ paddingTop: 0 }}>
+        <div className="container faq">
+          <div className="section-head">
+            <span className="tag">FAQ</span>
+            <h2>Questions developers <span className="serif grad-text">ask us</span></h2>
+          </div>
+          {FAQ.map((f) => (
+            <details className="card faq-item" key={f.q}>
+              <summary>{f.q}</summary>
+              <p>{f.a}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
       <section className="section" style={{ paddingTop: 0 }}>
         <div className="container">
           <div className="cta-band">
@@ -149,6 +291,7 @@ export default function Landing() {
 
       <SiteFooter />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(FAQ_LD) }} />
     </>
   );
 }

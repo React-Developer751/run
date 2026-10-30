@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { api } from '@/lib/api';
@@ -14,6 +14,11 @@ export default function AdminUsers() {
   const { data, error, reload } = usePoll(() => api.admin.users(), 10000);
   const { toast, flash } = useToast();
   const [q, setQ] = useState('');
+  // Links from Admin → Support open this page pre-filtered (?q=<email>).
+  useEffect(() => {
+    const preset = new URLSearchParams(window.location.search).get('q');
+    if (preset) setQ(preset);
+  }, []);
   const [busy, setBusy] = useState('');
   const [quota, setQuota] = useState<AdminUser | null>(null);
   const [quotaValue, setQuotaValue] = useState('');

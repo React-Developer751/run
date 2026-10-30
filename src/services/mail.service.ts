@@ -206,9 +206,20 @@ export class MailService {
   }
 
   /** Platform alert for administrators (failed deploys, storage running out). */
-  static adminAlert(to: string, title: string, message: string, url: string): Promise<boolean> {
-    const body = layout(title, message, { label: 'Open admin notifications', url }, 'You receive this because you are a HostX administrator.');
+  static adminAlert(to: string, title: string, message: string, url: string, label = 'Open admin notifications'): Promise<boolean> {
+    const body = layout(title, message, { label, url }, 'You receive this because you are a HostX administrator.');
     return this.send({ to, subject: `[HostX admin] ${title}`, ...body });
+  }
+
+  /** An administrator answered a support request. The reply itself is only shown in the dashboard. */
+  static supportReply(to: string, name: string, subject: string, url: string): Promise<boolean> {
+    const body = layout(
+      'Your support request has a reply',
+      `Hi ${name}, the HostX team replied to your request "${subject}". Open it to read the answer and continue the conversation.`,
+      { label: 'Read the reply', url },
+      'You receive this because you contacted HostX support.',
+    );
+    return this.send({ to, subject: `[HostX] Re: ${subject}`, ...body });
   }
 
   static resetPassword(to: string, name: string, url: string): Promise<boolean> {

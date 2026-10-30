@@ -24,6 +24,10 @@ const MIGRATIONS: string[] = [
    CREATE TABLE settings (key TEXT PRIMARY KEY, doc TEXT NOT NULL);`,
   `CREATE TABLE admin_notifications (id TEXT PRIMARY KEY, at TEXT NOT NULL, dedupe_key TEXT, doc TEXT NOT NULL);
    CREATE INDEX admin_notifications_at ON admin_notifications(at);`,
+  `CREATE TABLE feedback (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, at TEXT NOT NULL, doc TEXT NOT NULL);
+   CREATE INDEX feedback_user ON feedback(user_id);
+   CREATE TABLE tickets (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, updated_at TEXT NOT NULL, doc TEXT NOT NULL);
+   CREATE INDEX tickets_user ON tickets(user_id);`,
 ];
 
 /** Thin synchronous wrapper around node:sqlite (built into Node 22+, no native module to compile). */

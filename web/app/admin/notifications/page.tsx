@@ -12,6 +12,7 @@ const KIND_LABEL: Record<AdminNotification['kind'], string> = {
   'disk-near-full': 'Disk almost full',
   'memory-high': 'Memory high',
   'capacity-near-limit': 'Capacity limit',
+  'support-ticket': 'Support request',
 };
 
 type Filter = 'all' | 'unread' | AdminNotification['kind'];
@@ -124,7 +125,7 @@ export default function AdminNotifications() {
       <div className="page-head" style={{ marginBottom: 0 }}>
         <div>
           <h1>Notifications</h1>
-          <p>Failed deployments, and the server running low on disk, memory, ports or Docker networks. Admins are also emailed (at most once an hour per project).</p>
+          <p>Support requests, failed deployments, and the server running low on disk, memory, ports or Docker networks. Admins are also emailed (at most once an hour per project).</p>
         </div>
         <button className="btn" disabled={!data?.unread} onClick={() => markRead()}>Mark all read{data?.unread ? ` (${data.unread})` : ''}</button>
       </div>
@@ -134,7 +135,7 @@ export default function AdminNotifications() {
       {error && <div className="error-box">{error}</div>}
 
       <div className="row" style={{ flexWrap: 'wrap' }}>
-        {(['all', 'unread', 'deploy-failed', 'disk-near-full', 'memory-high', 'capacity-near-limit'] as Filter[]).map((f) => (
+        {(['all', 'unread', 'support-ticket', 'deploy-failed', 'disk-near-full', 'memory-high', 'capacity-near-limit'] as Filter[]).map((f) => (
           <button key={f} className={`btn btn-sm ${filter === f ? 'btn-primary' : ''}`} onClick={() => setFilter(f)}>
             {f === 'all' ? 'All' : f === 'unread' ? 'Unread' : KIND_LABEL[f]}
           </button>
@@ -153,6 +154,7 @@ export default function AdminNotifications() {
               <p>{n.message}</p>
               <div className="row" style={{ gap: 12, fontSize: 13 }}>
                 <span className={`badge ${n.severity === 'critical' ? 'badge-bad' : 'badge-busy'}`}>{KIND_LABEL[n.kind] ?? n.kind}</span>
+                {n.kind === 'support-ticket' && <Link href="/admin/support">Open support inbox</Link>}
                 {n.projectName && <Link href={`/admin/projects?q=${encodeURIComponent(n.projectName)}`}>View project</Link>}
                 {!n.readAt && <button className="link-btn" onClick={() => markRead([n.id])}>Mark read</button>}
               </div>

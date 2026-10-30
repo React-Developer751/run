@@ -262,7 +262,7 @@ export interface AdminStats {
 export interface AdminNotification {
   id: string;
   at: string;
-  kind: 'deploy-failed' | 'disk-near-full' | 'memory-high' | 'capacity-near-limit';
+  kind: 'deploy-failed' | 'disk-near-full' | 'memory-high' | 'capacity-near-limit' | 'support-ticket';
   severity: 'warning' | 'critical';
   title: string;
   message: string;
@@ -283,3 +283,70 @@ export interface StorageReport {
     networks: { used: number; total: number; usedPercent: number } | null;
   } | null;
 }
+
+export type Rating = 1 | 2 | 3 | 4 | 5;
+
+export interface Feedback {
+  id: string;
+  projectId: string | null;
+  projectName: string | null;
+  rating: Rating;
+  message: string;
+  allowPublic: boolean;
+  featured: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminFeedback extends Feedback {
+  userName: string;
+  userEmail: string;
+  /** How the name appears on the landing page ("Priya S."). */
+  publicName: string;
+}
+
+export interface Testimonial {
+  id: string;
+  name: string;
+  rating: Rating;
+  message: string;
+  kind: 'static' | 'node' | null;
+  at: string;
+}
+
+export type TicketCategory = 'emergency' | 'deploy' | 'billing' | 'account' | 'other';
+export type TicketStatus = 'open' | 'answered' | 'closed';
+
+export interface TicketMessage {
+  id: string;
+  at: string;
+  from: 'user' | 'admin';
+  authorName: string;
+  text: string;
+}
+
+export interface TicketSummary {
+  id: string;
+  subject: string;
+  category: TicketCategory;
+  status: TicketStatus;
+  projectId: string | null;
+  projectName: string | null;
+  messages: number;
+  lastMessage: { from: 'user' | 'admin'; at: string; preview: string } | null;
+  unread: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Ticket extends TicketSummary {
+  thread: TicketMessage[];
+}
+
+export interface AdminTicketSummary extends TicketSummary {
+  userName: string;
+  userEmail: string;
+  userPlan: PlanId | null;
+}
+
+export type AdminTicket = Ticket & { userName: string; userEmail: string; userPlan: PlanId | null; userId: string };

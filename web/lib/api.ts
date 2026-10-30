@@ -1,4 +1,4 @@
-import type { SettingsPatch, AdminNotification, StorageReport, AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
+import type { AdminFeedback, AdminTicket, AdminTicketSummary, Feedback, Rating, Testimonial, Ticket, TicketCategory, TicketSummary, SettingsPatch, AdminNotification, StorageReport, AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 /** Engine URL, for full-page navigations such as "Continue with GitHub". */
@@ -144,6 +144,25 @@ export const api = {
     readNotifications: (ids?: string[]) => request<{ marked: number }>('/api/admin/notifications/read', 'POST', ids ? { ids } : {}),
     storage: () => request<StorageReport>('/api/admin/storage'),
     checkStorage: () => request<StorageReport>('/api/admin/storage/check', 'POST', {}),
+    feedback: () => request<{ feedback: AdminFeedback[]; average: number | null; featured: number }>('/api/admin/feedback'),
+    featureFeedback: (id: string, featured: boolean) => request<{ feedback: Feedback }>(`/api/admin/feedback/${id}`, 'PATCH', { featured }),
+    deleteFeedback: (id: string) => request<{ ok: true }>(`/api/admin/feedback/${id}`, 'DELETE'),
+    tickets: () => request<{ tickets: AdminTicketSummary[]; unread: number; open: number }>('/api/admin/support/tickets'),
+    ticket: (id: string) => request<{ ticket: AdminTicket }>(`/api/admin/support/tickets/${id}`),
+    replyTicket: (id: string, text: string, close = false) => request<{ ticket: Ticket }>(`/api/admin/support/tickets/${id}/messages`, 'POST', { text, close }),
+    setTicketStatus: (id: string, status: 'open' | 'closed') => request<{ ticket: Ticket }>(`/api/admin/support/tickets/${id}/status`, 'POST', { status }),
+  },
+  testimonials: () => request<{ testimonials: Testimonial[] }>('/api/public/testimonials'),
+  feedback: {
+    mine: () => request<{ feedback: Feedback[] }>('/api/feedback'),
+    send: (body: { rating: Rating; message: string; allowPublic: boolean; projectId?: string | null }) => request<{ feedback: Feedback }>('/api/feedback', 'POST', body),
+  },
+  support: {
+    tickets: () => request<{ tickets: TicketSummary[]; unread: number }>('/api/support/tickets'),
+    ticket: (id: string) => request<{ ticket: Ticket }>(`/api/support/tickets/${id}`),
+    open: (body: { subject: string; category: TicketCategory; message: string; projectId?: string | null }) => request<{ ticket: Ticket }>('/api/support/tickets', 'POST', body),
+    reply: (id: string, text: string) => request<{ ticket: Ticket }>(`/api/support/tickets/${id}/messages`, 'POST', { text }),
+    close: (id: string) => request<{ ticket: Ticket }>(`/api/support/tickets/${id}/close`, 'POST', {}),
   },
   runtimeLogs: (id: string) => request<{ logs: string }>(`/api/projects/${id}/logs?lines=300`),
 };

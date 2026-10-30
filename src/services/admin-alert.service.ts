@@ -18,6 +18,9 @@ export interface AdminAlert {
   repeatAfterMs?: number;
   /** Key for email throttling (defaults to the dedupe key, then the kind). */
   emailKey?: string;
+  /** Dashboard page the email links to (defaults to Admin → Notifications), and its button text. */
+  link?: string;
+  linkLabel?: string;
 }
 
 /** Notifies every administrator: Admin → Notifications in the dashboard, plus an email when SMTP is configured. */
@@ -49,7 +52,8 @@ export class AdminAlertService {
     if (now - (this.lastEmail.get(emailKey) ?? 0) >= EMAIL_THROTTLE_MS) {
       this.lastEmail.set(emailKey, now);
       const admins = Store.allUsers().filter((u) => u.role === 'admin' && !u.suspended);
-      for (const admin of admins) void MailService.adminAlert(admin.email, n.title, n.message, `${config.dashboardUrl}/admin/notifications`);
+      const link = `${config.dashboardUrl}${alert.link ?? '/admin/notifications'}`;
+      for (const admin of admins) void MailService.adminAlert(admin.email, n.title, n.message, link, alert.linkLabel);
     }
     return n;
   }

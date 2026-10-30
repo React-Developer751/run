@@ -15,6 +15,7 @@ import { api } from '@/lib/api';
 import { useRequireAuth } from '@/lib/auth';
 import { repoLabel, timeAgo, triggerLabel } from '@/lib/format';
 import type { BuildConfig, Deployment, Project, ProjectEvent } from '@/lib/types';
+import { FeedbackPrompt } from '@/components/FeedbackPrompt';
 
 const EVENT_ICON: Record<ProjectEvent['kind'], string> = { crash: '🔴', restart: '🟠', recovered: '🟢', rollback: '↩️', paused: '⏸️', archived: '📦' };
 
@@ -251,6 +252,8 @@ export default function ProjectPage() {
         </div>
 
         {error && <div className="error-box" style={{ marginBottom: 20 }}>{error}</div>}
+        {project.status === 'live' && project.liveDeploymentId && <FeedbackPrompt projectId={project.id} projectName={project.name} />}
+
         {project.status === 'paused' && (
           <div className="notice-box" style={{ marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
             <span>

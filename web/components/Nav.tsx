@@ -63,6 +63,16 @@ export function Nav({ variant }: { variant: 'site' | 'app' }) {
     api.health().then(setHealth).catch(() => setHealth(null));
   }, []);
 
+  // Unread support replies (badge on "Support"), refreshed on page changes and every minute.
+  const [supportUnread, setSupportUnread] = useState(0);
+  useEffect(() => {
+    if (variant !== 'app' || !user) return;
+    const load = () => api.support.tickets().then((r) => setSupportUnread(r.unread)).catch(() => undefined);
+    void load();
+    const t = setInterval(load, 60_000);
+    return () => clearInterval(t);
+  }, [variant, user, pathname]);
+
   const logout = async () => {
     await signOut();
     router.push('/');
@@ -85,6 +95,9 @@ export function Nav({ variant }: { variant: 'site' | 'app' }) {
             <Link className={`nav-link ${pathname === '/dashboard' ? 'active' : ''}`} href="/dashboard">Projects</Link>
             <Link className={`nav-link ${pathname === '/new' ? 'active' : ''}`} href="/new">New deploy</Link>
             {health?.billing && <Link className={`nav-link ${pathname === '/billing' ? 'active' : ''}`} href="/billing">Billing</Link>}
+            <Link className={`nav-link ${pathname === '/support' ? 'active' : ''}`} href="/support">
+              Support{supportUnread > 0 && <span className="count-badge" aria-label={`${supportUnread} new replies`}>{supportUnread}</span>}
+            </Link>
             {user?.role === 'admin' && <Link className={`nav-link ${pathname.startsWith('/admin') ? 'active' : ''}`} href="/admin">Admin</Link>}
           </div>
         )}

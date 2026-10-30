@@ -180,13 +180,55 @@ interface Database {
   /** Ids of processed payment webhooks (Razorpay retries deliveries). */
   webhookEvents: string[];
   adminNotifications: AdminNotification[];
+  feedback: Feedback[];
+  tickets: Ticket[];
+}
+
+/** A user's rating of HostX, asked for after a successful deploy. Admins can feature it on the landing page. */
+export interface Feedback {
+  id: string;
+  userId: string;
+  projectId: string | null;
+  rating: 1 | 2 | 3 | 4 | 5;
+  message: string;
+  /** The user agreed that their first name and this text may be shown on the website. */
+  allowPublic: boolean;
+  /** Chosen by an admin to appear on the landing page (only possible with allowPublic). */
+  featured: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TicketMessage {
+  id: string;
+  at: string;
+  from: 'user' | 'admin';
+  authorName: string;
+  text: string;
+}
+
+/** A support request / complaint from a user to the administrators, with the conversation. */
+export interface Ticket {
+  id: string;
+  userId: string;
+  subject: string;
+  category: 'emergency' | 'deploy' | 'billing' | 'account' | 'other';
+  projectId: string | null;
+  /** open = waiting for an admin, answered = an admin replied, closed = resolved. */
+  status: 'open' | 'answered' | 'closed';
+  messages: TicketMessage[];
+  /** New message the other side has not opened yet. */
+  userUnread: boolean;
+  adminUnread: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** Something an administrator should look at (shown in Admin → Notifications, also emailed). */
 export interface AdminNotification {
   id: string;
   at: string;
-  kind: 'deploy-failed' | 'disk-near-full' | 'memory-high' | 'capacity-near-limit';
+  kind: 'deploy-failed' | 'disk-near-full' | 'memory-high' | 'capacity-near-limit' | 'support-ticket';
   severity: 'warning' | 'critical';
   title: string;
   message: string;
@@ -266,7 +308,7 @@ const WEBHOOK_EVENTS_KEPT = 2000;
  * durable before the call resolves. Records are also kept in memory, so reads stay synchronous and cheap.
  */
 export class Store {
-  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [], events: [], webhookEvents: [], adminNotifications: [] };
+  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [], events: [], webhookEvents: [], adminNotifications: [], feedback: [], tickets: [] };
 
   static async init(): Promise<void> {
     await fs.mkdir(config.dataDir, { recursive: true, mode: 0o700 });
@@ -285,6 +327,8 @@ export class Store {
       audit: docs<AuditEntry>('audit', ' ORDER BY at DESC'),
       webhookEvents: Db.all<{ id: string }>('SELECT id FROM webhook_events ORDER BY at DESC').map((r) => r.id),
       adminNotifications: docs<AdminNotification>('admin_notifications', ' ORDER BY at DESC'),
+      feedback: docs<Feedback>('feedback', ' ORDER BY at DESC'),
+      tickets: docs<Ticket>('tickets', ' ORDER BY updated_at DESC'),
       settings: settings ? (JSON.parse(settings.doc) as Settings) : { allowSignup: null, maxProjectsPerUser: null },
     };
 
@@ -391,8 +435,12 @@ export class Store {
     Db.tx(() => {
       Db.run('DELETE FROM tokens WHERE user_id = ?', id);
       Db.run('DELETE FROM sessions WHERE user_id = ?', id);
+      Db.run('DELETE FROM feedback WHERE user_id = ?', id);
+      Db.run('DELETE FROM tickets WHERE user_id = ?', id);
       Db.run('DELETE FROM users WHERE id = ?', id);
     });
+    this.db.feedback = this.db.feedback.filter((f) => f.userId !== id);
+    this.db.tickets = this.db.tickets.filter((t) => t.userId !== id);
     this.db.users = this.db.users.filter((u) => u.id !== id);
     this.db.tokens = this.db.tokens.filter((t) => t.userId !== id);
     this.db.sessions = this.db.sessions.filter((s) => s.userId !== id);
@@ -586,6 +634,47 @@ export class Store {
 
   static userBySubscription(subscriptionId: string): User | undefined {
     return this.db.users.find((u) => u.subscription?.id === subscriptionId);
+  }
+
+  // ── feedback ───────────────────────────────────────────
+  static allFeedback(): readonly Feedback[] {
+    return this.db.feedback;
+  }
+
+  static getFeedback(id: string): Feedback | undefined {
+    return this.db.feedback.find((f) => f.id === id);
+  }
+
+  /** Inserts or replaces a feedback entry (newest first). */
+  static async putFeedback(f: Feedback): Promise<Feedback> {
+    Db.put('feedback', { id: f.id, user_id: f.userId, at: f.createdAt, doc: JSON.stringify(f) });
+    this.db.feedback = [f, ...this.db.feedback.filter((x) => x.id !== f.id)].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return f;
+  }
+
+  static async deleteFeedback(id: string): Promise<void> {
+    Db.run('DELETE FROM feedback WHERE id = ?', id);
+    this.db.feedback = this.db.feedback.filter((f) => f.id !== id);
+  }
+
+  // ── support tickets ────────────────────────────────────
+  static allTickets(): readonly Ticket[] {
+    return this.db.tickets;
+  }
+
+  static ticketsOf(userId: string): Ticket[] {
+    return this.db.tickets.filter((t) => t.userId === userId);
+  }
+
+  static getTicket(id: string): Ticket | undefined {
+    return this.db.tickets.find((t) => t.id === id);
+  }
+
+  /** Inserts or replaces a ticket; the list stays sorted by last activity. */
+  static async putTicket(t: Ticket): Promise<Ticket> {
+    Db.put('tickets', { id: t.id, user_id: t.userId, updated_at: t.updatedAt, doc: JSON.stringify(t) });
+    this.db.tickets = [t, ...this.db.tickets.filter((x) => x.id !== t.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return t;
   }
 
   // ── admin notifications ────────────────────────────────

@@ -21,6 +21,7 @@ export default function ContactPage() {
         </tbody>
       </table>
       <p>We reply to support emails within 2 business days.</p>
+      <p>Have an account? The fastest way is <a href="/support">Support</a> in your dashboard: mark a request as <b>Emergency</b> when a live app is down and every administrator is alerted at once.</p>
 
       <h2>Grievance Officer</h2>
       <p>

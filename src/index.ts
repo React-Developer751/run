@@ -5,6 +5,7 @@ import { registerAdminRoutes } from './routes/admin.routes.js';
 import { registerAuthRoutes } from './routes/auth.routes.js';
 import { registerBillingRoutes } from './routes/billing.routes.js';
 import { registerDeployRoutes } from './routes/deploy.routes.js';
+import { registerSupportRoutes } from './routes/support.routes.js';
 import { AutoDeployService } from './services/autodeploy.service.js';
 import { AuthService } from './services/auth.service.js';
 import { DeployService } from './services/deploy.service.js';
@@ -37,6 +38,7 @@ async function main(): Promise<void> {
   registerDeployRoutes(router);
   registerAdminRoutes(router);
   registerBillingRoutes(router);
+  registerSupportRoutes(router);
 
   // Control plane: dashboard talks to this API (register, login, deploy, logs...).
   const apiServer = createApiServer(router, (req) => AuthService.authenticate(req));
