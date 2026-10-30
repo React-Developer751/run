@@ -6,12 +6,19 @@ import { config } from '../config/index.js';
 import { killGroup, run } from '../utils/exec.js';
 import { PortService } from './port.service.js';
 import { runtimeLogPath, tailFile } from './log.service.js';
-import type { Detection } from './detect.service.js';
+import { installCommand, type Detection } from './detect.service.js';
 import type { DeployContext, Runner, RuntimePatch } from './runner.service.js';
 import type { Project } from './store.service.js';
 
 const staticPath = (p: Project) => path.join(config.staticDir, p.id);
 const OUTPUT_CANDIDATES = ['dist', 'build', 'out', 'public'];
+
+/** The engine's own environment minus its secrets (HOSTX_SECRET etc.): user code must never see them. */
+function hostEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('HOSTX_')) env[k] = v;
+  return env;
+}
 
 const isPidAlive = (pid: number): boolean => {
   try {
@@ -31,22 +38,23 @@ export class ProcessRunner implements Runner {
   readonly name = 'process' as const;
 
   private cleanEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = { ...process.env, ...extra, npm_config_update_notifier: 'false' };
+    const env: NodeJS.ProcessEnv = { ...hostEnv(), ...extra, npm_config_update_notifier: 'false' };
     delete env.NODE_ENV; // devDependencies are needed for the build
     return env;
   }
 
   async deploy(ctx: DeployContext): Promise<RuntimePatch> {
     const { project, srcDir, detection, log, stage } = ctx;
-    if (detection.kind === 'node') await this.stop(project);
 
+    // The old process keeps serving during the build; it is only stopped right before the new one starts.
     await stage('building');
     const buildEnv = this.cleanEnv(project.env);
     const opts = { cwd: srcDir, env: buildEnv, onLine: log, timeoutMs: config.limits.buildTimeoutMs };
 
     if (detection.hasPackage) {
-      log('[hostx] npm install');
-      await run('npm', ['install', '--no-audit', '--no-fund'], opts);
+      const install = installCommand(detection.packageManager).replace('corepack enable && ', 'corepack ');
+      log(`[hostx] ${install}`);
+      await run('sh', ['-c', install], opts);
     }
     if (detection.buildCommand) {
       log(`[hostx] ${detection.buildCommand}`);
@@ -65,6 +73,7 @@ export class ProcessRunner implements Runner {
     }
 
     log('[hostx] Starting app...');
+    await this.stop(project);
     return this.spawnApp(project, srcDir, detection);
   }
 
@@ -84,7 +93,7 @@ export class ProcessRunner implements Runner {
     const state: { exited: number | undefined } = { exited: undefined };
     const child = spawn('sh', ['-c', detection.startCommand], {
       cwd: srcDir,
-      env: { ...process.env, ...project.env, PORT: String(project.port), NODE_ENV: 'production' },
+      env: { ...hostEnv(), ...project.env, PORT: String(project.port), NODE_ENV: 'production' },
       detached: true,
       stdio: ['ignore', fd, fd],
     });

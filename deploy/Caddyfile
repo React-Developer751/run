@@ -1,4 +1,10 @@
-# Wildcard TLS needs a DNS-01 capable Caddy build (e.g. caddy-dns/cloudflare). Replace yourdomain.com.
+# Two separate domains (like render.com vs onrender.com):
+#   yourdomain.com  -> dashboard (app.) + API (api.)          trusted, your code
+#   yourapps.app    -> users' apps (<slug>.yourapps.app)       untrusted, users' code
+# Keeping apps on their own domain means they cannot set cookies for the dashboard, and one phishing app
+# cannot get your main domain blocklisted. Once live, also submit yourapps.app to https://publicsuffix.org.
+# Wildcard TLS needs a DNS-01 capable Caddy build (e.g. caddy-dns/cloudflare). Replace both domains.
+
 app.yourdomain.com {
 	reverse_proxy 127.0.0.1:3000
 }
@@ -7,9 +13,10 @@ api.yourdomain.com {
 	reverse_proxy 127.0.0.1:4000
 }
 
-*.yourdomain.com {
+yourapps.app, *.yourapps.app {
 	tls {
 		dns cloudflare {env.CLOUDFLARE_API_TOKEN}
 	}
+	header Strict-Transport-Security "max-age=31536000"
 	reverse_proxy 127.0.0.1:8080
 }

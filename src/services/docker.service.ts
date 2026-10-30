@@ -2,17 +2,23 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from '../config/index.js';
 import { exec, run } from '../utils/exec.js';
+import { logger } from '../utils/logger.js';
 import { PortService } from './port.service.js';
-import type { Detection } from './detect.service.js';
+import { installCommand, type Detection } from './detect.service.js';
 import type { DeployContext, Runner, RuntimePatch } from './runner.service.js';
-import type { Project } from './store.service.js';
+import { Store, type Project } from './store.service.js';
 
 const DOCKERFILE = '.hostx.Dockerfile';
 const NGINX_CONF = '.hostx.nginx.conf';
 
-const containerName = (p: Project) => `hostx-${p.id}`;
-const networkName = (p: Project) => `hostx-net-${p.id}`;
-const imageName = (p: Project) => `hostx-${p.id}:latest`;
+// Every deploy gets its own image tag and container, so the old version keeps serving until the new one is healthy.
+const versionedName = (p: Project, version: string) => `hostx-${p.id}-${version}`;
+/** Container currently serving the project (projects deployed before versioned names used `hostx-<id>`). */
+const containerName = (p: Project) => p.containerName ?? `hostx-${p.id}`;
+export const networkName = (p: Project) => `hostx-net-${p.id}`;
+const imageName = (p: Project, version: string) => `hostx-${p.id}:${version}`;
+
+const LOCKFILES = { npm: 'package*.json', yarn: 'package.json yarn.lock*', pnpm: 'package.json pnpm-lock.yaml*' } as const;
 
 // SPA-friendly static server: unknown paths fall back to index.html, hashed assets are cached.
 const NGINX_CONFIG = `server {
@@ -28,12 +34,15 @@ const NGINX_CONFIG = `server {
 
 function dockerfileFor(detection: Detection, envKeys: string[]): string {
   const args = envKeys.map((k) => `ARG ${k}`).join('\n');
-  const install = detection.hasPackage ? 'COPY package*.json ./\nRUN npm install --no-audit --no-fund' : '';
+  const install = detection.hasPackage
+    ? `COPY ${LOCKFILES[detection.packageManager]} ./\nRUN ${JSON.stringify(['sh', '-c', installCommand(detection.packageManager)])}`
+    : '';
+  const node = `node:${/^\d+$/.test(detection.nodeVersion) ? detection.nodeVersion : '22'}-alpine`;
   // Exec-form JSON keeps the user's command on one Dockerfile line, whatever characters it contains.
   const build = detection.buildCommand ? `RUN ${JSON.stringify(['sh', '-c', detection.buildCommand])}` : '';
 
   if (detection.kind === 'static') {
-    return `FROM node:20-alpine AS build
+    return `FROM ${node} AS build
 WORKDIR /app
 ${install}
 COPY . .
@@ -48,7 +57,7 @@ EXPOSE 80
   }
 
   const cmd = JSON.stringify(['sh', '-c', detection.startCommand]);
-  return `FROM node:20-alpine
+  return `FROM ${node}
 WORKDIR /app
 ${install}
 COPY . .
@@ -68,7 +77,8 @@ export class DockerRunner implements Runner {
 
   async deploy(ctx: DeployContext): Promise<RuntimePatch> {
     const { project, srcDir, detection, log, stage } = ctx;
-    const envKeys = Object.keys(project.env);
+    const buildEnv = ctx.buildEnv ?? project.env;
+    const envKeys = Object.keys(buildEnv);
 
     // Remove first so a file (or symlink) shipped in the repo can never redirect these writes.
     const files: Array<[string, string]> = [
@@ -83,35 +93,60 @@ export class DockerRunner implements Runner {
 
     await stage('building');
     log('[hostx] Building Docker image...');
-    const buildArgs = envKeys.flatMap((k) => ['--build-arg', `${k}=${project.env[k]}`]);
-    await run('docker', ['build', '-t', imageName(project), '-f', DOCKERFILE, ...buildArgs, '.'], {
-      cwd: srcDir,
-      onLine: log,
-      timeoutMs: config.limits.buildTimeoutMs,
-    });
+    const version = Date.now().toString(36);
+    const image = imageName(project, version);
+    const buildArgs = envKeys.flatMap((k) => ['--build-arg', `${k}=${buildEnv[k]}`]);
+    try {
+      await run('docker', ['build', '-t', image, '-f', DOCKERFILE, ...buildArgs, '.'], {
+        cwd: srcDir,
+        onLine: log,
+        timeoutMs: config.limits.buildTimeoutMs,
+        label: 'docker build',
+      });
+    } catch (err) {
+      await exec('docker', ['rmi', '-f', image]);
+      throw err;
+    }
 
     await stage('starting');
-    log('[hostx] Starting container...');
-    await exec('docker', ['rm', '-f', containerName(project)]);
+    log('[hostx] Starting new version (the current one keeps serving until it is healthy)...');
     // One private network per project: containers of different users cannot reach each other.
     await exec('docker', ['network', 'create', '--driver', 'bridge', networkName(project)]);
-    return this.startContainer(project, detection, log);
+    const used = Store.usedPorts();
+    const port = await PortService.reserve(used);
+    try {
+      return await this.startContainer(project, detection, versionedName(project, version), image, port, log);
+    } catch (err) {
+      await exec('docker', ['rmi', '-f', image]);
+      throw err;
+    } finally {
+      PortService.release(port);
+    }
   }
 
-  private async startContainer(project: Project, detection: Detection, log: (l: string) => void): Promise<RuntimePatch> {
+  private async startContainer(
+    project: Project,
+    detection: Detection,
+    name: string,
+    image: string,
+    port: number,
+    log: (l: string) => void,
+  ): Promise<RuntimePatch> {
     const innerPort = detection.kind === 'static' ? 80 : 3000;
-    const envFile = path.join(config.envDir, `${project.id}.env`);
+    const envFile = path.join(config.envDir, `${name}.env`);
     await fs.mkdir(config.envDir, { recursive: true });
     const lines = Object.entries(project.env).map(([k, v]) => `${k}=${v}`);
     if (detection.kind === 'node') lines.push('NODE_ENV=production', 'PORT=3000');
     await fs.writeFile(envFile, lines.join('\n'), { mode: 0o600 });
 
+    await exec('docker', ['rm', '-f', name]);
     try {
       await run(
         'docker',
         [
           'run', '-d',
-          '--name', containerName(project),
+          '--name', name,
+          '--label', `hostx.project=${project.id}`,
           `--memory=${config.limits.memory}`,
           `--memory-swap=${config.limits.memory}`,
           `--cpus=${config.limits.cpus}`,
@@ -121,9 +156,11 @@ export class DockerRunner implements Runner {
           '--ulimit', 'nofile=4096:4096',
           '--cap-drop=ALL',
           '--security-opt', 'no-new-privileges',
+          '--log-opt', 'max-size=10m',
+          '--log-opt', 'max-file=3',
           '--env-file', envFile,
-          '-p', `127.0.0.1:${project.port}:${innerPort}`,
-          imageName(project),
+          '-p', `127.0.0.1:${port}:${innerPort}`,
+          image,
         ],
         { onLine: log },
       );
@@ -131,14 +168,30 @@ export class DockerRunner implements Runner {
       await fs.rm(envFile, { force: true });
     }
 
-    const ready = await PortService.waitForPort(project.port, config.limits.startTimeoutMs, async () => !(await this.isAlive(project)));
+    const isRunning = () => this.containerRunning(name);
+    const ready = await PortService.waitForPort(port, config.limits.startTimeoutMs, async () => !(await isRunning()));
     if (!ready) {
-      const logs = await this.runtimeLogs(project, 20);
+      const logs = await this.containerLogs(name, 20);
       if (logs) log(logs);
-      await exec('docker', ['rm', '-f', containerName(project)]);
+      await exec('docker', ['rm', '-f', name]);
       throw new Error(`App did not respond within ${config.limits.startTimeoutMs / 1000}s (or the container exited). Make sure it listens on process.env.PORT (3000).`);
     }
-    return { runtime: 'docker', pid: null, containerName: containerName(project) };
+    return { runtime: 'docker', pid: null, containerName: name, port };
+  }
+
+  async retire(previous: Project, current: RuntimePatch): Promise<void> {
+    if (previous.runtime !== 'docker') return;
+    const old = containerName(previous);
+    if (old === current.containerName) return;
+    // Give requests that were already in flight on the old version a moment to finish.
+    await new Promise((r) => setTimeout(r, 2000));
+    const { stdout } = await exec('docker', ['inspect', '-f', '{{.Config.Image}}', old]).catch(() => ({ stdout: '' }));
+    await exec('docker', ['rm', '-f', old]);
+    const oldImage = stdout.trim();
+    if (oldImage.startsWith(`hostx-${previous.id}:`)) await exec('docker', ['rmi', oldImage]);
+    // Intermediate build stages and replaced layers would otherwise fill the disk over time.
+    void exec('docker', ['image', 'prune', '-f', '--filter', 'dangling=true']).catch(() => undefined);
+    void exec('docker', ['builder', 'prune', '-f', '--filter', 'until=168h']).catch(() => undefined);
   }
 
   async start(project: Project): Promise<RuntimePatch> {
@@ -154,22 +207,32 @@ export class DockerRunner implements Runner {
   }
 
   async remove(project: Project): Promise<void> {
-    await exec('docker', ['rm', '-f', containerName(project)]);
-    await exec('docker', ['rmi', '-f', imageName(project)]);
+    // Every container and image this project ever had (old versions included).
+    const { stdout: ids } = await exec('docker', ['ps', '-aq', '--filter', `label=hostx.project=${project.id}`]);
+    const containers = [containerName(project), ...ids.split('\n').map((s) => s.trim()).filter(Boolean)];
+    await exec('docker', ['rm', '-f', ...new Set(containers)]);
+    const { stdout: images } = await exec('docker', ['images', '-q', `hostx-${project.id}`]);
+    const imageIds = [...new Set(images.split('\n').map((s) => s.trim()).filter(Boolean))];
+    if (imageIds.length > 0) await exec('docker', ['rmi', '-f', ...imageIds]);
     await exec('docker', ['network', 'rm', networkName(project)]);
   }
 
   async isAlive(project: Project): Promise<boolean> {
-    const { code, stdout } = await exec('docker', ['inspect', '-f', '{{.State.Running}}', containerName(project)]).catch(() => ({
-      code: 1,
-      stdout: '',
-    }));
+    return this.containerRunning(containerName(project));
+  }
+
+  private async containerRunning(name: string): Promise<boolean> {
+    const { code, stdout } = await exec('docker', ['inspect', '-f', '{{.State.Running}}', name]).catch(() => ({ code: 1, stdout: '' }));
     return code === 0 && stdout.trim() === 'true';
   }
 
   async runtimeLogs(project: Project, lines: number): Promise<string> {
+    return this.containerLogs(containerName(project), lines);
+  }
+
+  private async containerLogs(name: string, lines: number): Promise<string> {
     let out = '';
-    await exec('docker', ['logs', '--tail', String(lines), containerName(project)], {
+    await exec('docker', ['logs', '--tail', String(lines), name], {
       onLine: (l) => {
         out += `${l}\n`;
       },

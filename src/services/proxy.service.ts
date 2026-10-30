@@ -96,6 +96,12 @@ export class ProxyService {
   /** Host-header based reverse proxy built on node:http only. Handles HTTP, streaming and WebSocket upgrades. */
   public static createProxyServer(): http.Server {
     const server = http.createServer((req, res) => {
+      // yourapps.app and www.yourapps.app have no app of their own: send visitors to the dashboard.
+      const hostname = (req.headers.host ?? '').split(':')[0]?.toLowerCase();
+      if (config.webOrigins[0] && (hostname === config.baseDomain || hostname === `www.${config.baseDomain}`)) {
+        res.writeHead(302, { Location: config.webOrigins[0], 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       const project = resolveProject(req.headers.host);
       if (!project) return statusPage(res, 404, 'App not found', 'No deployment exists at this address.');
       if (project.status !== 'live') {

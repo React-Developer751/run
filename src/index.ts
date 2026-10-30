@@ -1,4 +1,4 @@
-import { config, projectUrl } from './config/index.js';
+import { config, projectUrl, sharedDomainProblem } from './config/index.js';
 import { Router, createApiServer } from './utils/http.js';
 import { logger } from './utils/logger.js';
 import { registerAdminRoutes } from './routes/admin.routes.js';
@@ -7,16 +7,23 @@ import { registerDeployRoutes } from './routes/deploy.routes.js';
 import { AutoDeployService } from './services/autodeploy.service.js';
 import { AuthService } from './services/auth.service.js';
 import { DeployService } from './services/deploy.service.js';
+import { MongoService } from './services/mongo.service.js';
 import { ProxyService } from './services/proxy.service.js';
 import { RunnerService } from './services/runner.service.js';
 import { Store } from './services/store.service.js';
 import { Vault } from './services/vault.service.js';
 
 async function main(): Promise<void> {
+  const domainProblem = sharedDomainProblem();
+  if (domainProblem) {
+    if (config.isProduction && !config.allowSharedDomain) throw new Error(domainProblem);
+    logger.warn(domainProblem);
+  }
   await AuthService.init();
   Vault.init(AuthService.deriveKey('hostx-secrets-at-rest'));
   await Store.init();
   await RunnerService.init();
+  await MongoService.init();
 
   const router = new Router();
   registerAuthRoutes(router);
@@ -40,7 +47,7 @@ async function main(): Promise<void> {
   proxyServer.headersTimeout = 30_000;
 
   apiServer.listen(config.apiPort, config.apiHost, () => logger.info(`[HostX API]   http://${config.apiHost}:${config.apiPort}`));
-  proxyServer.listen(config.proxyPort, () => {
+  proxyServer.listen(config.proxyPort, config.proxyHost, () => {
     logger.info(`[HostX Proxy] ${projectUrl('<app>')}  (listening on :${config.proxyPort})`);
   });
 

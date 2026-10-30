@@ -8,6 +8,7 @@ import { isReservedSlug, slugify } from '../utils/validator.js';
 import { ClonerService } from './cloner.service.js';
 import { DetectService, type Detection } from './detect.service.js';
 import { DeployLog, redactPaths } from './log.service.js';
+import { MongoService } from './mongo.service.js';
 import { PortService } from './port.service.js';
 import { RunnerService } from './runner.service.js';
 import { Store, type Deployment, type DeploymentStatus, type Project } from './store.service.js';
@@ -24,6 +25,8 @@ export interface CreateProjectInput {
   startCommand: string | null;
   outputDir: string | null;
   autoDeploy: boolean;
+  /** Create a managed MongoDB database for the project before the first deploy. */
+  database: boolean;
 }
 
 const projectDir = (p: Project) => path.join(config.appsDir, p.id);
@@ -46,6 +49,14 @@ async function safeWorkDir(p: Project): Promise<string> {
   return realDir;
 }
 
+/**
+ * Env the app actually runs with: the project's own vars plus MONGODB_URI/MONGO_URI from the database add-on.
+ * Web services only: a static site's env is baked into public JavaScript, where a database password must never end up.
+ */
+function runtimeEnv(project: Project, kind: Detection['kind']): Record<string, string> {
+  return kind === 'node' ? { ...MongoService.envFor(project), ...project.env } : project.env;
+}
+
 /** Detected defaults for the folder, overridden by whatever the user set on the project. */
 async function resolveConfig(project: Project, dir: string): Promise<Detection | null> {
   const detected = (await DetectService.fromDir(dir)) ?? (await DetectService.plainStatic(dir));
@@ -61,7 +72,17 @@ async function resolveConfig(project: Project, dir: string): Promise<Detection |
 }
 
 // Docker restarts an existing image, so it needs no source-based detection.
-const PLACEHOLDER: Detection = { kind: 'node', framework: '', outputDir: '', buildCommand: '', startCommand: '', packageName: null, hasPackage: true };
+const PLACEHOLDER: Detection = {
+  kind: 'node',
+  framework: '',
+  outputDir: '',
+  buildCommand: '',
+  startCommand: '',
+  packageName: null,
+  hasPackage: true,
+  nodeVersion: '22',
+  packageManager: 'npm',
+};
 
 export class DeployService {
   private static activeBuilds = 0;
@@ -91,6 +112,8 @@ export class DeployService {
       throw new HttpError(403, `Project limit reached (${limit}). Delete a project to create a new one.`);
     }
 
+    if (input.database && !MongoService.available()) throw new HttpError(503, 'Databases are not available on this server');
+
     let slug = slugify(input.name);
     if (isReservedSlug(slug) || Store.getProjectBySlug(slug)) {
       slug = `${slug.slice(0, 24)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -119,12 +142,21 @@ export class DeployService {
       port,
       pid: null,
       containerName: null,
+      database: null,
       currentDeploymentId: null,
       commit: null,
       createdAt: now,
       updatedAt: now,
     });
 
+    if (input.database) {
+      try {
+        await MongoService.create(project);
+      } catch (err) {
+        await Store.deleteProject(project.id);
+        throw err;
+      }
+    }
     const deployment = await this.deploy(project, 'create');
     return { project, deployment };
   }
@@ -159,7 +191,8 @@ export class DeployService {
     try {
       const srcDir = project.runtime === 'docker' ? sourceDir(project) : await safeWorkDir(project);
       const detection = (project.runtime === 'docker' ? null : await resolveConfig(project, srcDir)) ?? PLACEHOLDER;
-      const patch = await RunnerService.for(project).start(project, srcDir, detection);
+      const runnable = { ...project, env: runtimeEnv(project, detection.kind) };
+      const patch = await RunnerService.for(project).start(runnable, srcDir, detection);
       await Store.updateProject(project.id, { ...patch, status: 'live' });
     } catch (err) {
       throw new HttpError(500, `Could not start the app: ${(err as Error).message}`);
@@ -167,6 +200,8 @@ export class DeployService {
   }
 
   static async remove(project: Project): Promise<void> {
+    // Before the runner: the project network can only be removed once Mongo has left it.
+    await MongoService.drop(project).catch((err) => logger.warn(`Database of ${project.id} was not dropped`, err));
     await RunnerService.for(project).remove(project).catch((err) => logger.warn(`Cleanup of ${project.id} was incomplete`, err));
     await fs.rm(projectDir(project), { recursive: true, force: true });
     await Store.deleteProject(project.id);
@@ -235,13 +270,25 @@ export class DeployService {
         throw new Error('A web service needs a start command (for example: npm start).');
       }
       log.system(`Detected ${detection.framework} (${detection.kind === 'static' ? 'static site' : 'web service'}), commit ${commit ?? 'unknown'}`);
+      if (detection.hasPackage) log.system(`Node.js ${detection.nodeVersion} · install: ${detection.packageManager}`);
       log.system(`Build: ${detection.buildCommand || '(none)'} · ${detection.kind === 'static' ? `Output: ${detection.outputDir}` : `Start: ${detection.startCommand}`}`);
       await Store.updateDeployment(deploymentId, { commit });
 
+      if (project.database) {
+        if (!MongoService.available()) log.system('Warning: the database add-on is unavailable right now; MONGODB_URI is not set.');
+        else if (detection.kind === 'static') log.system('Note: static sites do not receive MONGODB_URI (it would be visible in the browser). Use it from your backend service.');
+        else {
+          if (runner.name === 'docker') await MongoService.attach(project);
+          log.system('Database attached: MONGODB_URI is set for this app.');
+        }
+      }
+
+      const previous = { ...project };
       const patch = await runner.deploy({
-        project: { ...project },
+        project: { ...project, env: MongoService.available() ? runtimeEnv(project, detection.kind) : project.env },
         srcDir,
         detection,
+        buildEnv: project.env,
         log: log.write,
         stage: setStage,
       });
@@ -254,6 +301,8 @@ export class DeployService {
         status: 'live',
       });
       await Store.updateDeployment(deploymentId, { status: 'live', finishedAt: new Date().toISOString() });
+      // Traffic now goes to the new version: tear down the old one.
+      await runner.retire?.(previous, patch).catch((err) => logger.warn(`Cleanup of the previous version of ${project.slug} failed`, err));
       // The image already contains everything; keep disk usage flat.
       if (patch.runtime === 'docker') await fs.rm(sourceDir(project), { recursive: true, force: true });
       log.system(`Live at ${projectUrl(project.slug)}`);

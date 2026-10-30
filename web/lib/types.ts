@@ -22,6 +22,8 @@ export interface Project {
   framework: string | null;
   env: Record<string, string>;
   autoDeploy: boolean;
+  /** Managed MongoDB add-on; the URI contains the password (owner-only). */
+  database: { name: string; user: string; uri: string; createdAt: string } | null;
   webhook: { url: string; secret: string };
   status: ProjectStatus;
   commit: string | null;
@@ -62,6 +64,8 @@ export interface Health {
   status: string;
   runner: 'docker' | 'process';
   urlTemplate: string;
+  /** true when the server can create MongoDB databases. */
+  databases?: boolean;
 }
 
 export interface AdminUser {

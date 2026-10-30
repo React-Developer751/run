@@ -11,6 +11,8 @@ export interface DeployContext {
   /** Absolute path of the folder to build (repo root or chosen sub-folder). */
   srcDir: string;
   detection: Detection;
+  /** Variables passed to the image build. Defaults to project.env; add-on secrets (MONGODB_URI) are runtime-only. */
+  buildEnv?: Record<string, string>;
   log: (line: string) => void;
   stage: (status: DeploymentStatus) => Promise<void>;
 }
@@ -19,12 +21,19 @@ export interface RuntimePatch {
   runtime: RuntimeKind;
   pid: number | null;
   containerName: string | null;
+  /** Set when the new version listens on a different port than the old one (zero-downtime switch). */
+  port?: number;
 }
 
 export interface Runner {
   readonly name: 'docker' | 'process';
   /** Builds the project and starts it. Resolves once the app answers on its port. */
   deploy(ctx: DeployContext): Promise<RuntimePatch>;
+  /**
+   * Called after the project record points at the new version (traffic has switched over).
+   * Removes what the previous version left running. `previous` is the project as it was before the deploy.
+   */
+  retire?(previous: Project, current: RuntimePatch): Promise<void>;
   /** Starts an already built app again (after a stop or a HostX restart). */
   start(project: Project, srcDir: string, detection: Detection): Promise<RuntimePatch>;
   stop(project: Project): Promise<void>;

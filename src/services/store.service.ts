@@ -82,10 +82,19 @@ export interface Project {
   port: number;
   pid: number | null;
   containerName: string | null;
+  /** Managed MongoDB add-on (null = none). The password is encrypted at rest like env vars. */
+  database: ProjectDatabase | null;
   currentDeploymentId: string | null;
   commit: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ProjectDatabase {
+  name: string;
+  user: string;
+  password: string;
+  createdAt: string;
 }
 
 export interface Deployment {
@@ -138,6 +147,7 @@ export class Store {
           outputDir: p.outputDir ?? null,
           autoDeploy: p.autoDeploy ?? true,
           webhookSecret: p.webhookSecret ?? crypto.randomBytes(24).toString('hex'),
+          database: p.database ?? null,
         })),
         deployments: parsed.deployments ?? [],
       };
@@ -147,6 +157,7 @@ export class Store {
     for (const p of this.db.projects) {
       p.env = Object.fromEntries(Object.entries(p.env ?? {}).map(([k, v]) => [k, Vault.decrypt(v)]));
       p.webhookSecret = Vault.decrypt(p.webhookSecret);
+      if (p.database) p.database = { ...p.database, password: Vault.decrypt(p.database.password) };
     }
     // Accounts created before roles existed: make sure somebody can administer the platform.
     if (this.db.users.length > 0 && !this.db.users.some((u) => u.role === 'admin')) {
@@ -166,6 +177,7 @@ export class Store {
         ...p,
         env: Object.fromEntries(Object.entries(p.env).map(([k, v]) => [k, Vault.encrypt(v)])),
         webhookSecret: Vault.encrypt(p.webhookSecret),
+        database: p.database ? { ...p.database, password: Vault.encrypt(p.database.password) } : null,
       })),
     };
     const snapshot = JSON.stringify(onDisk, null, 2);

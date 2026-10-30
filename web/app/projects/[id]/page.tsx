@@ -14,11 +14,12 @@ import { useRequireAuth } from '@/lib/auth';
 import { repoLabel, timeAgo, triggerLabel } from '@/lib/format';
 import type { BuildConfig, Deployment, Project } from '@/lib/types';
 
-type Tab = 'deployments' | 'runtime' | 'env' | 'settings';
+type Tab = 'deployments' | 'runtime' | 'env' | 'database' | 'settings';
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: 'deployments', label: 'Deployments' },
   { id: 'runtime', label: 'Runtime logs' },
   { id: 'env', label: 'Environment' },
+  { id: 'database', label: 'Database' },
   { id: 'settings', label: 'Settings' },
 ];
 
@@ -79,6 +80,12 @@ export default function ProjectPage() {
   const [cfg, setCfg] = useState<BuildConfig | null>(null);
   const [cfgInitial, setCfgInitial] = useState<BuildConfig | null>(null);
   const [runtimeLogs, setRuntimeLogs] = useState<string[]>([]);
+  const [databasesOn, setDatabasesOn] = useState(false);
+  const [showUri, setShowUri] = useState(false);
+
+  useEffect(() => {
+    api.health().then((h) => setDatabasesOn(Boolean(h.databases))).catch(() => undefined);
+  }, []);
 
   const flash = (message: string) => {
     setToast(message);
@@ -290,6 +297,76 @@ export default function ProjectPage() {
           </div>
         )}
 
+        {tab === 'database' && (
+          <div className="card stack" style={{ maxWidth: 760 }}>
+            <div>
+              <h3 style={{ fontSize: 18 }}>MongoDB</h3>
+              <p className="muted" style={{ marginTop: 6 }}>
+                A private database only this project can use. The connection string is injected as{' '}
+                <span className="mono">MONGODB_URI</span> (and <span className="mono">MONGO_URI</span>) into your web service, unless you set those variables yourself.
+              </p>
+            </div>
+            {project.database ? (
+              <>
+                <div className="field">
+                  <span className="label">Connection string</span>
+                  <div className="row">
+                    <input
+                      className="input input-sm mono"
+                      readOnly
+                      type={showUri ? 'text' : 'password'}
+                      value={project.database.uri}
+                      onFocus={(e) => e.currentTarget.select()}
+                    />
+                    <button type="button" className="btn btn-sm" onClick={() => setShowUri((v) => !v)}>{showUri ? 'Hide' : 'Show'}</button>
+                    <button type="button" className="btn btn-sm" onClick={() => { void navigator.clipboard?.writeText(project.database?.uri ?? ''); flash('Connection string copied'); }}>
+                      <Icon name="copy" /> Copy
+                    </button>
+                  </div>
+                  <span className="hint">
+                    Database <span className="mono">{project.database.name}</span> · created {timeAgo(project.database.createdAt)}. It is reachable only from this app, not from the internet.
+                    {project.kind === 'static' && ' Static sites never receive it — connect from your backend service.'}
+                  </span>
+                </div>
+                <div className="notice-box">
+                  In code: <span className="mono">mongoose.connect(process.env.MONGODB_URI)</span>. Redeploy after adding a database so the app picks it up.
+                </div>
+                <div>
+                  <button
+                    className="btn btn-danger"
+                    disabled={busy !== '' || deploying}
+                    onClick={() => {
+                      if (!window.confirm(`Delete database "${project.database?.name}" and ALL of its data? This cannot be undone.`)) return;
+                      void act('db', () => api.deleteDatabase(id), 'Database deleted');
+                    }}
+                  >
+                    {busy === 'db' ? <span className="spinner" /> : <Icon name="trash" />} Delete database
+                  </button>
+                </div>
+              </>
+            ) : databasesOn ? (
+              <div className="row">
+                <button
+                  className="btn btn-primary"
+                  disabled={busy !== '' || deploying}
+                  onClick={() => act('db', async () => {
+                    await api.createDatabase(id);
+                    if (project.status === 'live' && window.confirm('Database created. Redeploy now so the app receives MONGODB_URI?')) {
+                      const r = await api.redeploy(id);
+                      setSelected(r.deployment.id);
+                      setTab('deployments');
+                    }
+                  }, 'Database created')}
+                >
+                  {busy === 'db' ? <span className="spinner" /> : null} Create database
+                </button>
+              </div>
+            ) : (
+              <div className="notice-box">Databases are not enabled on this server.</div>
+            )}
+          </div>
+        )}
+
         {tab === 'settings' && (
           <div className="stack" style={{ maxWidth: 760 }}>
             <div className="card stack">
@@ -364,7 +441,7 @@ export default function ProjectPage() {
 
             <div className="card stack danger-zone">
               <h3 style={{ fontSize: 18, color: 'var(--bad)' }}>Danger zone</h3>
-              <p className="muted">Deleting stops the app and permanently removes its files, logs and deployments.</p>
+              <p className="muted">Deleting stops the app and permanently removes its files, logs and deployments{project.database ? ', and its database with all data' : ''}.</p>
               <div>
                 <button
                   className="btn btn-danger"

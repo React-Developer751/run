@@ -28,6 +28,8 @@ export const config = {
   apiHost: env.HOSTX_API_HOST ?? '127.0.0.1',
   apiPort: num(env.HOSTX_API_PORT, 4000),
   proxyPort,
+  // Behind Caddy/nginx bind the app proxy to 127.0.0.1 too, so nobody can skip TLS by hitting :8080 directly.
+  proxyHost: env.HOSTX_PROXY_HOST || undefined,
 
   // Apps are served on <slug>.<baseDomain>. "localhost" works out of the box in modern browsers.
   baseDomain: (env.HOSTX_BASE_DOMAIN ?? 'localhost').toLowerCase(),
@@ -76,7 +78,52 @@ export const config = {
   apiPublicUrl: (env.HOSTX_API_PUBLIC_URL ?? `http://localhost:${num(env.HOSTX_API_PORT, 4000)}`).replace(/\/+$/, ''),
 
   portRange: { min: 5001, max: 5999 },
+
+  // Users' apps must not share a registrable domain with the dashboard/API (see checkDomains). Escape hatch for old setups.
+  allowSharedDomain: env.HOSTX_ALLOW_SHARED_DOMAIN === 'true',
+
+  // Managed MongoDB add-on: one database + user per project, MONGODB_URI injected into the app.
+  mongo: {
+    enabled: (env.HOSTX_MONGO ?? 'on').toLowerCase() !== 'off',
+    image: env.HOSTX_MONGO_IMAGE ?? 'mongo:8.0',
+    memory: env.HOSTX_MONGO_MEMORY ?? '1g',
+    cacheGb: /^\d+(\.\d+)?$/.test(env.HOSTX_MONGO_CACHE_GB ?? '') ? (env.HOSTX_MONGO_CACHE_GB as string) : '0.25',
+    // Without Docker (or to use your own server): a mongodb:// URI of a user allowed to create users and databases.
+    adminUri: env.HOSTX_MONGO_ADMIN_URI || null,
+  },
 } as const;
+
+const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'edu', 'ac', 'ltd', 'plc', 'gen', 'firm', 'ind', 'nic', 'res']);
+
+/** Rough registrable domain ("eTLD+1") without the public suffix list: a.b.example.co.uk -> example.co.uk. */
+export function siteOf(host: string): string {
+  const labels = host.toLowerCase().replace(/\.$/, '').split('.');
+  if (labels.length <= 2) return labels.join('.');
+  const [sld, tld] = labels.slice(-2) as [string, string];
+  const take = tld.length === 2 && SECOND_LEVEL.has(sld) ? 3 : 2; // co.uk, com.au, co.in, org.in ...
+  return labels.slice(-take).join('.');
+}
+
+/**
+ * Users' apps are untrusted. When they live under the same registrable domain as the dashboard/API they are "same-site":
+ * they can set cookies for the whole domain, a single phishing app gets the entire domain blocklisted, and so on.
+ * Render keeps apps on onrender.com for exactly this reason. Returns a description of the problem, or null.
+ */
+export function sharedDomainProblem(): string | null {
+  if (config.baseDomain === 'localhost' || config.baseDomain.endsWith('.localhost')) return null;
+  const appsSite = siteOf(config.baseDomain);
+  const controlHosts = [...config.webOrigins, config.apiPublicUrl].flatMap((u) => {
+    try {
+      return [new URL(u).hostname];
+    } catch {
+      return [];
+    }
+  });
+  const clash = controlHosts.find((h) => h !== 'localhost' && siteOf(h) === appsSite);
+  return clash
+    ? `Apps domain "${config.baseDomain}" shares the registrable domain "${appsSite}" with ${clash}. Put users' apps on a separate domain (e.g. HOSTX_BASE_DOMAIN=yourapps.app) or set HOSTX_ALLOW_SHARED_DOMAIN=true to accept the risk.`
+    : null;
+}
 
 /** Public URL for a deployed project, e.g. http://my-app.localhost:8080 */
 export function projectUrl(slug: string): string {

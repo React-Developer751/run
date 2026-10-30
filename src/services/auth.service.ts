@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import type http from 'node:http';
 import { promisify } from 'node:util';
 import { config } from '../config/index.js';
-import { HttpError, parseCookies } from '../utils/http.js';
+import { HttpError, authCookieNames, parseCookies } from '../utils/http.js';
 import { Store, type User } from './store.service.js';
 
 const scrypt = promisify(crypto.scrypt) as (password: string, salt: Buffer, keylen: number) => Promise<Buffer>;
@@ -87,7 +87,7 @@ export class AuthService {
 
   /** The access token comes only from the HttpOnly cookie. There is no Authorization-header login any more. */
   static async authenticate(req: http.IncomingMessage): Promise<User | null> {
-    const token = parseCookies(req.headers.cookie)[config.accessCookie];
+    const token = parseCookies(req.headers.cookie)[authCookieNames(req).access];
     if (!token) return null;
     const payload = this.verifyToken(token);
     if (!payload) return null;

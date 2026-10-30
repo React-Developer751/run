@@ -55,15 +55,19 @@ Production build: `npm run build && npm start` (engine), `cd web && npm run buil
 
 Static sites (Vite/CRA): Docker mode mein nginx container; Process mode mein build ke baad proxy khud files serve karta hai (SPA fallback ke saath).
 
+**Build details:** Node.js version `package.json` ke `engines.node` se (18/20/22/24, default **22**). Lockfile se package manager: `pnpm-lock.yaml` → pnpm, `yarn.lock` → yarn (corepack), warna npm.
+
+**Zero-downtime deploys (Docker):** har deploy ka apna image tag (`hostx-<id>:<version>`) aur container (`hostx-<id>-<version>`) naye port pe start hota hai. Health check pass hone ke baad hi proxy naye version pe switch karta hai, phir purana container + image delete hota hai (dangling images aur 7 din purana build cache bhi prune). Naya version fail ho to purana chalta rehta hai. Container logs `10m × 3` files tak capped hain.
+
 ## Security
 
-**Built in:** scrypt password hashes · **sessions in HttpOnly cookies only** (nothing in `localStorage`/JS): 15-min access token + 30-day rotating refresh token, refresh-reuse detection (a replayed old refresh token revokes the whole login), instant server-side logout, CSRF `Origin` check + `SameSite=Lax` · tokens revoked on password change/reset/suspend/delete · login limits per IP *and* per email · global API limit (600 req/min/IP) · deploy limit (30 builds/hour/user) · owner-only project access (same 404 for "missing" and "not yours") · webhook HMAC-SHA256 · env vars & webhook secrets **encrypted at rest** (AES-256-GCM, key derived from `HOSTX_SECRET`) · `data/` is `0700`, files `0600` · server paths hidden from user logs · CSP, HSTS, X-Frame-Options on the dashboard · API on loopback · git clone without symlinks/hooks · one private Docker network per project (users' containers cannot reach each other) with `--cap-drop=ALL`, `no-new-privileges`, memory/CPU/pids/ulimit caps, non-root user · production refuses to start without Docker or with a `HOSTX_SECRET` shorter than 32 chars.
+**Built in:** scrypt password hashes · **sessions in HttpOnly cookies only** (over https named `__Host-hostx_at` / `__Host-hostx_rt`, so a user's app on a sibling subdomain cannot plant a session cookie; malformed cookies are ignored) (nothing in `localStorage`/JS): 15-min access token + 30-day rotating refresh token, refresh-reuse detection (a replayed old refresh token revokes the whole login), instant server-side logout, CSRF `Origin` check + `SameSite=Lax` · tokens revoked on password change/reset/suspend/delete · login limits per IP *and* per email · global API limit (600 req/min/IP) · deploy limit (30 builds/hour/user) · owner-only project access (same 404 for "missing" and "not yours") · webhook HMAC-SHA256 · env vars & webhook secrets **encrypted at rest** (AES-256-GCM, key derived from `HOSTX_SECRET`) · `data/` is `0700`, files `0600` · server paths hidden from user logs · CSP, HSTS, X-Frame-Options on the dashboard · API on loopback · git clone without symlinks/hooks · one private Docker network per project (users' containers cannot reach each other) with `--cap-drop=ALL`, `no-new-privileges`, memory/CPU/pids/ulimit caps, non-root user · production refuses to start without Docker or with a `HOSTX_SECRET` shorter than 32 chars.
 
 **You must do on the server (cannot be done from code):**
 
 1. **Behind Caddy/nginx set `HOSTX_TRUST_PROXY=true`.** Without it every user shares the proxy's IP in rate limits. Never set it if the API is reachable directly.
 2. **Block the cloud metadata endpoint from containers** (otherwise a user's app can steal your VPS credentials): `iptables -I DOCKER-USER -d 169.254.169.254 -j DROP`.
-3. Firewall: only 80/443 (+SSH) public. Keep 3000, 4000, 8080 and 5001-5999 closed.
+3. Firewall: only 80/443 (+SSH) public. Keep 3000, 4000, 8080 and 5001-5999 closed. Also set `HOSTX_PROXY_HOST=127.0.0.1` so the app proxy only listens for Caddy/nginx.
 4. Run the engine as a dedicated user. Docker group membership is root-equivalent, so protect that account (SSH keys only, no password login).
 5. **Back up `data/` (db.json + secret.key) together.** Do not change `HOSTX_SECRET` / `secret.key` afterwards: stored env vars become unreadable (they are encrypted with it).
 6. Set `HOSTX_ALLOW_SIGNUP=false` once your own accounts exist (open sign-up lets strangers run builds on your CPU).
@@ -113,6 +117,33 @@ Safeguards: apne aap ko demote/suspend/delete nahi kar sakte, kam se kam ek acti
 
 Default **Daylight Aurora** (light: lavender-white, indigo → pink gradient). Navbar ke sun/moon button se **Midnight Indigo** (dark) — choice browser mein save rehti hai. Saare colors `web/app/globals.css` ke top ke tokens mein hain.
 
+## Domains: dashboard aur apps alag rakho
+
+Render ki tarah (`render.com` vs `onrender.com`) do domains use karo:
+
+| Domain | Kya chalta hai |
+|---|---|
+| `app.yourdomain.com`, `api.yourdomain.com` | Dashboard + API (aapka trusted code) |
+| `<slug>.yourapps.app` | Users ki apps (`HOSTX_BASE_DOMAIN=yourapps.app`) |
+
+Kyun: same registrable domain par user ki app dashboard ke liye cookies set kar sakti hai, aur ek phishing app aapka poora main domain Google Safe Browsing / spam lists mein block karwa sakti hai. Production mein engine start hi nahi hota agar dono domain same hon (`HOSTX_ALLOW_SHARED_DOMAIN=true` se override). `yourapps.app` aur `www.yourapps.app` dashboard par redirect hote hain. Live hone ke baad apps domain ko <https://publicsuffix.org> par submit karo (browsers phir har app ko alag site maanenge). Caddy config: `deploy/Caddyfile`.
+
+## MongoDB add-on
+
+Har web service ek click mein apna private MongoDB database le sakti hai (New deploy par "Add a MongoDB database", ya project → **Database** tab).
+
+- Ek shared `mongo:8.0` container (`hostx-mongo`, data volume `hostx-mongo-data`, memory cap `HOSTX_MONGO_MEMORY`). Host par koi port publish nahi hota.
+- Har project ka apna database `db_<id>` + user `u_<id>` jo sirf usi database ko padh/likh sakta hai. Mongo sirf un projects ke private Docker network se judta hai jinke paas database hai, isliye apps phir bhi ek dusre tak nahi pahunch sakti.
+- App ko `MONGODB_URI` aur `MONGO_URI` milte hain (agar user ne khud set nahi kiye, jaise Atlas URI). Code: `mongoose.connect(process.env.MONGODB_URI)`. Database banane ke baad redeploy karna hota hai.
+- Static sites ko URI **kabhi nahi** milta (wo browser JavaScript mein dikh jata). Docker image build args mein bhi nahi jata, sirf runtime par.
+- Password `db.json` mein encrypted (AES-256-GCM). Mongo root password `data/mongo-root.key` mein.
+- Project delete = database + uska saara data delete.
+- Docker ke bina (dev): `HOSTX_MONGO_ADMIN_URI=mongodb://admin:pass@localhost:27017/?authSource=admin` aur `mongosh` install karo. `HOSTX_MONGO=off` se band.
+
+**Aapko server par karna hoga:** roz backup, e.g. cron mein
+`docker exec -i hostx-mongo sh -c 'mongodump -u root -p "$(cat)" --authenticationDatabase admin --archive --gzip' < data/mongo-root.key > /backups/mongo-$(date +%F).gz`.
+Abhi per-database storage quota nahi hai (MongoDB khud support nahi karta): admin disk usage dekhte rahein.
+
 ## Auto-deploy (git push → automatic update)
 
 Har project mein **Auto-deploy** default ON hai. Do tarike, dono saath chalte hain:
@@ -128,7 +159,12 @@ Purana live version tab tak chalta rehta hai jab tak naya deploy successful na h
 |---|---|---|
 | `HOSTX_API_PORT` | `4000` | Engine API |
 | `HOSTX_PROXY_PORT` | `8080` | App reverse proxy (live server pe `80`) |
-| `HOSTX_BASE_DOMAIN` | `localhost` | Apps `<slug>.<domain>` pe |
+| `HOSTX_PROXY_HOST` | all interfaces | Production mein `127.0.0.1` (sirf Caddy/nginx proxy tak pahunche) |
+| `HOSTX_BASE_DOMAIN` | `localhost` | Apps `<slug>.<domain>` pe. Production mein dashboard se **alag** domain |
+| `HOSTX_ALLOW_SHARED_DOMAIN` | `false` | Same domain par apps chalane ki zabardasti (not recommended) |
+| `HOSTX_MONGO` / `HOSTX_MONGO_IMAGE` | `on` / `mongo:8.0` | MongoDB add-on |
+| `HOSTX_MONGO_MEMORY` / `HOSTX_MONGO_CACHE_GB` | `1g` / `0.25` | Mongo container limits |
+| `HOSTX_MONGO_ADMIN_URI` | – | Docker ke bina ya apna Mongo server |
 | `HOSTX_PUBLIC_SCHEME` / `HOSTX_PUBLIC_PORT` | `http` / proxy port | Dashboard mein dikhne wale URLs ke liye |
 | `HOSTX_WEB_ORIGIN` | `http://localhost:3000` | CORS allow-list (comma separated) |
 | `HOSTX_SECRET` | auto (`data/secret.key`) | Token signing secret |
@@ -144,9 +180,9 @@ Dashboard: `web/.env.local` mein `NEXT_PUBLIC_API_URL=http://localhost:4000` aur
 
 `POST /api/auth/register` · `POST /api/auth/login` · `GET /api/auth/me`
 `POST /api/scan` · `GET|POST /api/projects` · `GET|PATCH|DELETE /api/projects/:id`
-`POST /api/projects/:id/deploy|stop|start` · `GET /api/projects/:id/deployments/:did/logs?after=N` · `GET /api/projects/:id/logs`
+`POST /api/projects/:id/deploy|stop|start` · `POST|DELETE /api/projects/:id/database` · `GET /api/projects/:id/deployments/:did/logs?after=N` · `GET /api/projects/:id/logs`
 
-Sab (health ke alawa) `Authorization: Bearer <token>` maangte hain.
+Sab (health aur webhook ke alawa) login cookie maangte hain (`credentials: 'include'`).
 
 ## Live server pe (production)
 
