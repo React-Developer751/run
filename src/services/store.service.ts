@@ -24,7 +24,22 @@ export interface User {
   lastLoginAt: string | null;
   /** Tokens issued before this moment are rejected (set on password change/reset). */
   passwordChangedAt: string | null;
+  /** null = the address was never confirmed. Accounts from before verification existed count as verified. */
+  emailVerifiedAt: string | null;
+  /** Linked GitHub account and the GitHub App installations it can use. */
+  github: { login: string; installationIds: number[]; linkedAt: string } | null;
   createdAt: string;
+}
+
+/** Single-use secret sent by email (verify address, reset password). Only its hash is stored. */
+export interface OneTimeToken {
+  id: string;
+  userId: string;
+  kind: 'verify-email' | 'reset-password';
+  hash: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt: string | null;
 }
 
 /** Runtime-editable platform settings. null = fall back to the environment default. */
@@ -84,6 +99,8 @@ export interface Project {
   containerName: string | null;
   /** Managed MongoDB add-on (null = none). The password is encrypted at rest like env vars. */
   database: ProjectDatabase | null;
+  /** GitHub App installation used to clone (private repos). null = public clone. */
+  githubInstallationId: number | null;
   currentDeploymentId: string | null;
   commit: string | null;
   createdAt: string;
@@ -115,11 +132,12 @@ interface Database {
   settings: Settings;
   audit: AuditEntry[];
   sessions: Session[];
+  tokens: OneTimeToken[];
 }
 
 /** Small JSON-file database: in-memory reads, atomic serialized writes. No third-party packages. */
 export class Store {
-  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [] };
+  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [] };
   private static queue: Promise<void> = Promise.resolve();
 
   static async init(): Promise<void> {
@@ -135,10 +153,13 @@ export class Store {
           maxProjects: u.maxProjects ?? null,
           lastLoginAt: u.lastLoginAt ?? null,
           passwordChangedAt: u.passwordChangedAt ?? null,
+          emailVerifiedAt: u.emailVerifiedAt === undefined ? u.createdAt : u.emailVerifiedAt,
+          github: u.github ?? null,
         })),
         settings: { allowSignup: parsed.settings?.allowSignup ?? null, maxProjectsPerUser: parsed.settings?.maxProjectsPerUser ?? null },
         audit: parsed.audit ?? [],
         sessions: parsed.sessions ?? [],
+        tokens: parsed.tokens ?? [],
         projects: (parsed.projects ?? []).map((p) => ({
           ...p,
           kindPref: p.kindPref ?? null,
@@ -148,6 +169,7 @@ export class Store {
           autoDeploy: p.autoDeploy ?? true,
           webhookSecret: p.webhookSecret ?? crypto.randomBytes(24).toString('hex'),
           database: p.database ?? null,
+          githubInstallationId: p.githubInstallationId ?? null,
         })),
         deployments: parsed.deployments ?? [],
       };
@@ -218,6 +240,7 @@ export class Store {
 
   static async deleteUser(id: string): Promise<void> {
     this.db.users = this.db.users.filter((u) => u.id !== id);
+    this.db.tokens = this.db.tokens.filter((t) => t.userId !== id);
     await this.save();
   }
 
@@ -255,6 +278,29 @@ export class Store {
   static async revokeUserSessions(userId: string): Promise<void> {
     const at = new Date().toISOString();
     for (const s of this.db.sessions) if (s.userId === userId && !s.revokedAt) s.revokedAt = at;
+    await this.save();
+  }
+
+  // ── one-time tokens (email links) ──────────────────────
+  /** Stores a new token and invalidates older unused ones of the same kind for that user. */
+  static async addToken(token: OneTimeToken): Promise<void> {
+    const now = Date.now();
+    this.db.tokens = this.db.tokens.filter(
+      (t) => new Date(t.expiresAt).getTime() > now && !t.usedAt && !(t.userId === token.userId && t.kind === token.kind),
+    );
+    this.db.tokens.push(token);
+    await this.save();
+  }
+
+  /** A valid (unused, unexpired) token of that kind, or undefined. */
+  static findToken(hash: string, kind: OneTimeToken['kind']): OneTimeToken | undefined {
+    const t = this.db.tokens.find((x) => x.hash === hash && x.kind === kind);
+    return t && !t.usedAt && new Date(t.expiresAt).getTime() > Date.now() ? t : undefined;
+  }
+
+  static async useToken(id: string): Promise<void> {
+    const t = this.db.tokens.find((x) => x.id === id);
+    if (t) t.usedAt = new Date().toISOString();
     await this.save();
   }
 

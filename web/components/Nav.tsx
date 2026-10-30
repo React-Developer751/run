@@ -28,6 +28,36 @@ function RunnerChip() {
   );
 }
 
+/** Shown until the account's email is confirmed, on servers where that blocks deploys. */
+function VerifyBanner({ email }: { email: string }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'sent'>('idle');
+  const [error, setError] = useState('');
+  const resend = async () => {
+    setState('busy');
+    setError('');
+    try {
+      await api.resendVerification();
+      setState('sent');
+    } catch (err) {
+      setError((err as Error).message);
+      setState('idle');
+    }
+  };
+  return (
+    <div className="container" style={{ marginTop: 14 }}>
+      <div className="notice-box" role="status" style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+        <span>
+          <b>Confirm your email</b> to start deploying. We sent a link to <b>{email}</b>.
+          {error && <span style={{ color: 'var(--bad)' }}> {error}</span>}
+        </span>
+        <button className="btn btn-sm" onClick={resend} disabled={state !== 'idle'}>
+          {state === 'busy' ? <span className="spinner" /> : state === 'sent' ? 'Sent — check your inbox' : 'Resend email'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Nav({ variant }: { variant: 'site' | 'app' }) {
   const { user, loading, signOut } = useAuth();
   const pathname = usePathname();
@@ -39,6 +69,7 @@ export function Nav({ variant }: { variant: 'site' | 'app' }) {
   };
 
   return (
+    <>
     <nav className="nav">
       <div className="container nav-inner">
         <Logo href={user ? '/dashboard' : '/'} />
@@ -80,5 +111,7 @@ export function Nav({ variant }: { variant: 'site' | 'app' }) {
         </div>
       </div>
     </nav>
+    {variant === 'app' && user && !user.emailVerified && user.verificationRequired && <VerifyBanner email={user.email} />}
+    </>
   );
 }

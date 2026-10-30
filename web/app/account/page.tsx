@@ -1,11 +1,81 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Nav } from '@/components/Nav';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useRequireAuth } from '@/lib/auth';
+import type { GitHubStatus } from '@/lib/types';
+
+const GITHUB_RESULT: Record<string, { ok: boolean; text: string }> = {
+  connected: { ok: true, text: 'GitHub connected. Your repositories now show up on the New deploy page.' },
+  requested: { ok: true, text: 'Installation requested. An owner of that GitHub organization has to approve it first.' },
+  expired: { ok: false, text: 'The GitHub connection took too long or was started from another account. Please try again.' },
+  'missing-code': { ok: false, text: 'GitHub did not send a sign-in code. In the GitHub App settings, enable "Request user authorization (OAuth) during installation".' },
+  failed: { ok: false, text: 'Could not connect GitHub. Please try again.' },
+};
+
+function GitHubCard() {
+  const { reload } = useAuth();
+  const [status, setStatus] = useState<GitHubStatus | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const key = new URLSearchParams(window.location.search).get('github');
+    if (key && GITHUB_RESULT[key]) {
+      setResult(GITHUB_RESULT[key]);
+      window.history.replaceState(null, '', '/account');
+      void reload();
+    }
+    api.github.status().then(setStatus).catch(() => setStatus(null));
+  }, [reload]);
+
+  if (!status?.enabled) return null;
+  return (
+    <div className="card stack" style={{ marginBottom: 20 }}>
+      <div>
+        <h2 style={{ fontSize: 18 }}>GitHub</h2>
+        <p className="muted" style={{ marginTop: 6 }}>
+          Connect GitHub to deploy <b>private repositories</b> and get instant deploys on every push. You choose which repositories HostX can read.
+        </p>
+      </div>
+      {result && <div className={result.ok ? 'notice-box' : 'error-box'} role="status">{result.text}</div>}
+      {status.connected ? (
+        <>
+          <dl className="kv">
+            <div><dt>Account</dt><dd className="mono">@{status.login}</dd></div>
+            <div><dt>Installations</dt><dd>{status.installations}</dd></div>
+          </dl>
+          <div className="row">
+            <a className="btn" href={status.installUrl}>Add repositories or organizations</a>
+            <a className="btn" href={status.authorizeUrl}>Refresh access</a>
+            <button
+              className="btn btn-danger"
+              disabled={busy}
+              onClick={async () => {
+                if (!window.confirm('Disconnect GitHub from HostX? Existing projects keep deploying until you uninstall the app on GitHub.')) return;
+                setBusy(true);
+                await api.github.unlink().catch(() => undefined);
+                setStatus(await api.github.status().catch(() => null));
+                await reload();
+                setBusy(false);
+              }}
+            >
+              Disconnect
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="row">
+          <a className="btn btn-primary" href={status.installUrl}>Connect GitHub</a>
+          <a className="btn" href={status.authorizeUrl}>The app is already installed? Link it</a>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AccountPage() {
   const user = useRequireAuth();
@@ -53,10 +123,12 @@ export default function AccountPage() {
             <h2 style={{ fontSize: 18 }}>Profile</h2>
             <dl className="kv">
               <div><dt>Name</dt><dd>{user.name}</dd></div>
-              <div><dt>Email</dt><dd>{user.email}</dd></div>
+              <div><dt>Email</dt><dd>{user.email} {user.emailVerified ? <span className="dim">(confirmed)</span> : <span style={{ color: 'var(--warn)' }}>(not confirmed)</span>}</dd></div>
               <div><dt>Role</dt><dd style={{ textTransform: 'capitalize' }}>{user.role}</dd></div>
             </dl>
           </div>
+
+          <GitHubCard />
 
           <form className="card stack" onSubmit={submit}>
             <div>

@@ -1,6 +1,7 @@
 import type { Router } from '../utils/http.js';
 import { WebhookController } from '../controllers/webhook.controller.js';
 import { DeployController } from '../controllers/deploy.controller.js';
+import { GitHubController } from '../controllers/github.controller.js';
 
 export function registerDeployRoutes(router: Router): void {
   router.get('/api/health', DeployController.health);
@@ -21,4 +22,10 @@ export function registerDeployRoutes(router: Router): void {
   router.get('/api/projects/:id/deployments/:did/logs', DeployController.deploymentLogs);
   router.post('/api/webhooks/github/:id', WebhookController.github);
   router.get('/api/projects/:id/logs', DeployController.runtimeLogs);
+
+  router.get('/api/github', GitHubController.status);
+  router.delete('/api/github', GitHubController.unlink);
+  router.get('/api/auth/github/callback', GitHubController.callback);
+  router.get('/api/github/repos', GitHubController.repos);
+  router.post('/api/github/webhook', GitHubController.webhook);
 }

@@ -2,6 +2,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const api = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+// Cloudflare Turnstile (CAPTCHA) is only allowed when a site key is configured.
+const turnstile = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ? ' https://challenges.cloudflare.com' : '';
 
 const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
@@ -13,7 +15,8 @@ const securityHeaders = [
     key: 'Content-Security-Policy',
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'" + (process.env.NODE_ENV === 'production' ? '' : " 'unsafe-eval'"),
+      "script-src 'self' 'unsafe-inline'" + turnstile + (process.env.NODE_ENV === 'production' ? '' : " 'unsafe-eval'"),
+      `frame-src 'self'${turnstile}`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data:",
       `connect-src 'self' ${api}` + (process.env.NODE_ENV === 'production' ? '' : ' ws://localhost:3000'),

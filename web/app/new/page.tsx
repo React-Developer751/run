@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 import { BuildSettings, EMPTY_CONFIG, folderToConfig } from '@/components/BuildSettings';
@@ -9,7 +10,9 @@ import { Nav } from '@/components/Nav';
 import { api } from '@/lib/api';
 import { useRequireAuth } from '@/lib/auth';
 import { slugPreview } from '@/lib/format';
-import type { BuildConfig, ScanFolder } from '@/lib/types';
+import type { BuildConfig, GitHubRepo, ScanFolder } from '@/lib/types';
+
+const normalizeRepo = (url: string) => url.trim().toLowerCase().replace(/\/+$/, '').replace(/\.git$/, '');
 
 export default function NewDeploy() {
   const user = useRequireAuth();
@@ -29,9 +32,20 @@ export default function NewDeploy() {
   const [deploying, setDeploying] = useState(false);
   const [error, setError] = useState('');
   const [urlTemplate, setUrlTemplate] = useState('http://{slug}.localhost:8080');
+  const [githubOn, setGithubOn] = useState(false);
+  const [repos, setRepos] = useState<GitHubRepo[] | null>(null);
+  const [repoFilter, setRepoFilter] = useState('');
 
   useEffect(() => {
-    api.health().then((h) => { setUrlTemplate(h.urlTemplate); setDatabasesOn(Boolean(h.databases)); }).catch(() => undefined);
+    if (user?.github) api.github.repos().then((r) => setRepos(r.repos)).catch(() => setRepos([]));
+  }, [user?.github]);
+
+  // A repository from the connected GitHub account is cloned through the GitHub App (works for private repos too).
+  const githubRepo = repos?.find((r) => normalizeRepo(r.url) === normalizeRepo(repoUrl));
+  const installationId = githubRepo?.installationId;
+
+  useEffect(() => {
+    api.health().then((h) => { setUrlTemplate(h.urlTemplate); setDatabasesOn(Boolean(h.databases)); setGithubOn(Boolean(h.github)); }).catch(() => undefined);
   }, []);
 
   const reset = () => setScanned(false);
@@ -42,7 +56,7 @@ export default function NewDeploy() {
     setScanning(true);
     setScanned(false);
     try {
-      const r = await api.scan(repoUrl.trim(), branch.trim());
+      const r = await api.scan(repoUrl.trim(), branch.trim(), installationId);
       setFolders(r.folders);
       // Prefer the repo root when it is deployable, otherwise the first folder found.
       const first = r.folders.find((f) => f.path === '.') ?? r.folders[0];
@@ -67,6 +81,7 @@ export default function NewDeploy() {
         env: envFromRows(env),
         autoDeploy,
         database: withDatabase && config.kind === 'node',
+        ...(installationId !== undefined ? { githubInstallationId: installationId } : {}),
         ...config,
         rootDir: config.rootDir.trim() || '.',
       });
@@ -97,6 +112,29 @@ export default function NewDeploy() {
           <div className="stepper"><div className="on" /><div className={scanned ? 'on' : ''} /></div>
 
           <div className="card stack">
+            {repos && repos.length > 0 && (
+              <div className="field">
+                <span className="label">Your GitHub repositories <span className="dim">(@{user.github?.login})</span></span>
+                <input className="input input-sm" placeholder="Filter repositories…" value={repoFilter} onChange={(e) => setRepoFilter(e.target.value)} spellCheck={false} />
+                <div className="deploy-list" style={{ maxHeight: 220, overflowY: 'auto' }}>
+                  {repos
+                    .filter((r) => r.fullName.toLowerCase().includes(repoFilter.trim().toLowerCase()))
+                    .slice(0, 50)
+                    .map((r) => (
+                      <button
+                        type="button"
+                        key={`${r.installationId}:${r.fullName}`}
+                        className={`deploy-item ${githubRepo?.fullName === r.fullName ? 'on' : ''}`}
+                        onClick={() => { setRepoUrl(r.url); setBranch(''); reset(); }}
+                      >
+                        <span className="mono">{r.fullName}</span>
+                        <small>{r.private ? 'private' : 'public'} · {r.defaultBranch}</small>
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
+
             <form className="stack" onSubmit={scan}>
               <div className="field">
                 <label className="label" htmlFor="repo">GitHub repository URL</label>
@@ -124,7 +162,14 @@ export default function NewDeploy() {
                     {scanning ? <><span className="spinner" /> Scanning</> : 'Scan repo'}
                   </button>
                 </div>
-                <span className="hint">We take a shallow clone and auto-fill the settings below. Only public repositories are supported.</span>
+                <span className="hint">
+                  We take a shallow clone and auto-fill the settings below.{' '}
+                  {githubRepo
+                    ? `Cloned through your GitHub connection${githubRepo.private ? ' (private repository)' : ''}.`
+                    : githubOn && !user.github
+                      ? <>Private repository? <Link href="/account">Connect GitHub</Link> first.</>
+                      : 'Public repositories work without connecting GitHub.'}
+                </span>
               </div>
             </form>
 

@@ -1,4 +1,4 @@
-import type { AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BuildConfig, Deployment, PlatformSettings, Health, Project, ScanFolder, User } from './types';
+import type { AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BuildConfig, Deployment, GitHubRepo, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 export class ApiError extends Error {
@@ -11,7 +11,15 @@ export class ApiError extends Error {
 }
 
 /** Auth endpoints that must never trigger the silent-refresh retry (it would loop or hide real login errors). */
-const NO_REFRESH = ['/api/auth/login', '/api/auth/register', '/api/auth/refresh', '/api/auth/logout'];
+const NO_REFRESH = [
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/refresh',
+  '/api/auth/logout',
+  '/api/auth/verify-email',
+  '/api/auth/forgot-password',
+  '/api/auth/reset-password',
+];
 
 let refreshing: Promise<boolean> | null = null;
 
@@ -55,8 +63,12 @@ async function request<T>(path: string, method = 'GET', body?: unknown, retried 
 export const api = {
   health: () => request<Health>('/api/health'),
 
-  register: (name: string, email: string, password: string) =>
-    request<{ user: User }>('/api/auth/register', 'POST', { name, email, password }),
+  register: (name: string, email: string, password: string, captcha?: string) =>
+    request<{ user: User }>('/api/auth/register', 'POST', { name, email, password, captcha }),
+  verifyEmail: (token: string) => request<{ ok: true }>('/api/auth/verify-email', 'POST', { token }),
+  resendVerification: () => request<{ ok: true; alreadyVerified?: boolean }>('/api/auth/resend-verification', 'POST', {}),
+  forgotPassword: (email: string, captcha?: string) => request<{ ok: true }>('/api/auth/forgot-password', 'POST', { email, captcha }),
+  resetPassword: (token: string, password: string) => request<{ ok: true }>('/api/auth/reset-password', 'POST', { token, password }),
   login: (email: string, password: string) =>
     request<{ user: User }>('/api/auth/login', 'POST', { email, password }),
   me: () => request<{ user: User }>('/api/auth/me'),
@@ -65,12 +77,18 @@ export const api = {
   changePassword: (currentPassword: string, newPassword: string) =>
     request<{ ok: true }>('/api/auth/password', 'POST', { currentPassword, newPassword }),
 
-  scan: (repoUrl: string, branch?: string) =>
-    request<{ repoName: string; folders: ScanFolder[] }>('/api/scan', 'POST', { repoUrl, branch: branch || undefined }),
+  scan: (repoUrl: string, branch?: string, githubInstallationId?: number) =>
+    request<{ repoName: string; folders: ScanFolder[] }>('/api/scan', 'POST', { repoUrl, branch: branch || undefined, githubInstallationId }),
+
+  github: {
+    status: () => request<GitHubStatus>('/api/github'),
+    repos: () => request<{ repos: GitHubRepo[] }>('/api/github/repos'),
+    unlink: () => request<{ ok: true }>('/api/github', 'DELETE'),
+  },
 
   projects: () => request<{ projects: Project[] }>('/api/projects'),
   createProject: (
-    input: Partial<BuildConfig> & { repoUrl: string; branch?: string; name: string; env: Record<string, string>; autoDeploy?: boolean; database?: boolean },
+    input: Partial<BuildConfig> & { repoUrl: string; branch?: string; name: string; env: Record<string, string>; autoDeploy?: boolean; database?: boolean; githubInstallationId?: number },
   ) => request<{ project: Project; deployment: Deployment }>('/api/projects', 'POST', input),
   project: (id: string) => request<{ project: Project; deployments: Deployment[] }>(`/api/projects/${id}`),
   updateProject: (id: string, patch: Partial<BuildConfig> & { name?: string; env?: Record<string, string>; autoDeploy?: boolean }) =>

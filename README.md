@@ -77,7 +77,7 @@ Static sites (Vite/CRA): Docker mode mein nginx container; Process mode mein bui
 - Docker shares the host kernel. For untrusted public users add gVisor/Sysbox or run HostX on a throwaway VM.
 - `docker build` (npm install of user code) is not memory-capped; it has a 10-minute timeout. On a small VPS keep signups closed.
 - Auth cookies are `SameSite=Lax`, so the dashboard and the API must share one registrable domain (e.g. `app.example.com` + `api.example.com`). Users' apps live on sibling subdomains, which is why every state-changing request is also checked against the dashboard `Origin`.
-- No email verification, 2FA or CAPTCHA; admin sees every user's build logs.
+- No 2FA yet; admin sees every user's build logs.
 - JSON-file database: single process only.
 
 ## Login sessions (cookies)
@@ -144,6 +144,34 @@ Har web service ek click mein apna private MongoDB database le sakti hai (New de
 `docker exec -i hostx-mongo sh -c 'mongodump -u root -p "$(cat)" --authenticationDatabase admin --archive --gzip' < data/mongo-root.key > /backups/mongo-$(date +%F).gz`.
 Abhi per-database storage quota nahi hai (MongoDB khud support nahi karta): admin disk usage dekhte rahein.
 
+## Email (verification + forgot password)
+
+- Sign-up par confirmation link jata hai (24 ghante valid). Unverified account login kar sakta hai lekin **deploy nahi** (dashboard mein "Resend email" banner). Pehla account (owner) aur admins kabhi block nahi hote; purane accounts verified maane jaate hain.
+- Login page → **Forgot password?** → email link (1 ghanta, ek baar). Reset ke baad saare devices sign-out. Unknown email par bhi wahi jawab, taaki koi emails check na kar sake.
+- Emails par rate limit: 3/ghanta per account.
+- Koi bhi SMTP provider (Brevo, Amazon SES, Resend, Postmark, Mailgun, Gmail app password):
+  `HOSTX_SMTP_URL=smtps://user:pass@smtp.provider.com:465` (ya `smtp://...:587` STARTTLS; bina TLS ke sirf localhost par). User/pass mein `@` ho to `%40` likho. `HOSTX_MAIL_FROM="HostX <no-reply@yourdomain.com>"`.
+- SMTP set hote hi verification zaroori ho jata hai (`HOSTX_REQUIRE_VERIFIED_EMAIL=true|false` se badlo). Development mein SMTP na ho to email engine log mein print hota hai.
+- Domain par SPF/DKIM/DMARC records lagao (provider batata hai), warna mails spam mein jayenge.
+
+**CAPTCHA (optional, Cloudflare Turnstile, free):** engine mein `HOSTX_TURNSTILE_SECRET`, dashboard build mein `NEXT_PUBLIC_TURNSTILE_SITE_KEY`. Sign-up aur forgot-password par lagta hai.
+
+## GitHub App (private repos + instant deploys)
+
+Users "Connect GitHub" karke apni private repos deploy kar sakte hain. HostX sirf wahi repos padh sakta hai jo user GitHub par chunta hai, aur har clone ek 1-ghante ke installation token se hota hai (token clone URL, `.git/config`, logs ya `ps` mein kabhi nahi dikhta). Ek hi webhook se saari connected repos par push → deploy.
+
+**Setup (ek baar):** GitHub → Settings → Developer settings → **GitHub Apps → New GitHub App**
+- Homepage URL: `https://app.yourdomain.com`
+- Callback URL: `https://api.yourdomain.com/api/auth/github/callback` ✅ **"Request user authorization (OAuth) during installation"** on
+- Setup URL: khali chhodo · Webhook URL: `https://api.yourdomain.com/api/github/webhook`, ek random webhook secret
+- Permissions → Repository: **Contents: Read-only**, Metadata: Read-only. Events: **Push**
+- "Any account" par installable rakho (public SaaS ke liye)
+- Banne ke baad private key (.pem) download karo
+
+Engine env: `HOSTX_GITHUB_APP_ID`, `HOSTX_GITHUB_APP_SLUG` (URL wala naam), `HOSTX_GITHUB_CLIENT_ID`, `HOSTX_GITHUB_CLIENT_SECRET`, `HOSTX_GITHUB_WEBHOOK_SECRET`, aur `HOSTX_GITHUB_PRIVATE_KEY_FILE=/opt/hostx/github-app.pem` (ya poori PEM `HOSTX_GITHUB_PRIVATE_KEY` mein, `\n` ke saath). git >= 2.31 chahiye.
+
+Security: callback par installation id par bharosa nahi kiya jata. OAuth code se GitHub se poocha jata hai ki is GitHub user ko kaunsi installations dikhti hain, aur signed `state` usi HostX user ka hona chahiye jo signed-in hai. Public repos bina connect kiye pehle jaisi chalti hain.
+
 ## Auto-deploy (git push → automatic update)
 
 Har project mein **Auto-deploy** default ON hai. Do tarike, dono saath chalte hain:
@@ -178,7 +206,8 @@ Dashboard: `web/.env.local` mein `NEXT_PUBLIC_API_URL=http://localhost:4000` aur
 
 ## API
 
-`POST /api/auth/register` · `POST /api/auth/login` · `GET /api/auth/me`
+`POST /api/auth/register` · `POST /api/auth/login` · `GET /api/auth/me` · `POST /api/auth/verify-email|resend-verification|forgot-password|reset-password`
+`GET|DELETE /api/github` · `GET /api/github/repos` · `GET /api/auth/github/callback` · `POST /api/github/webhook`
 `POST /api/scan` · `GET|POST /api/projects` · `GET|PATCH|DELETE /api/projects/:id`
 `POST /api/projects/:id/deploy|stop|start` · `POST|DELETE /api/projects/:id/database` · `GET /api/projects/:id/deployments/:did/logs?after=N` · `GET /api/projects/:id/logs`
 

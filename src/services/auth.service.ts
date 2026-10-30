@@ -106,6 +106,20 @@ export class AuthService {
     return user;
   }
 
+  /** Signed-in user whose email is confirmed (only enforced when HOSTX_REQUIRE_VERIFIED_EMAIL / SMTP is on). */
+  static requireVerified(user: User | null): User {
+    const u = this.requireUser(user);
+    if (config.requireVerifiedEmail && !u.emailVerifiedAt && u.role !== 'admin') {
+      throw new HttpError(403, 'Please confirm your email address first. Check your inbox, or resend the link from the dashboard.');
+    }
+    return u;
+  }
+
+  /** HMAC of a value with the HostX secret (for short-lived signed state, e.g. the GitHub connect flow). */
+  static signValue(data: string): string {
+    return this.sign(data);
+  }
+
   static requireAdmin(user: User | null): User {
     const u = this.requireUser(user);
     if (u.role !== 'admin') throw new HttpError(403, 'Administrator access required');

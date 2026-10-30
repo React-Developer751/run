@@ -7,6 +7,7 @@ import { logger } from '../utils/logger.js';
 import { isReservedSlug, slugify } from '../utils/validator.js';
 import { ClonerService } from './cloner.service.js';
 import { DetectService, type Detection } from './detect.service.js';
+import { GitHubService } from './github.service.js';
 import { DeployLog, redactPaths } from './log.service.js';
 import { MongoService } from './mongo.service.js';
 import { PortService } from './port.service.js';
@@ -25,6 +26,7 @@ export interface CreateProjectInput {
   startCommand: string | null;
   outputDir: string | null;
   autoDeploy: boolean;
+  githubInstallationId: number | null;
   /** Create a managed MongoDB database for the project before the first deploy. */
   database: boolean;
 }
@@ -143,6 +145,7 @@ export class DeployService {
       pid: null,
       containerName: null,
       database: null,
+      githubInstallationId: input.githubInstallationId,
       currentDeploymentId: null,
       commit: null,
       createdAt: now,
@@ -256,7 +259,7 @@ export class DeployService {
       await fs.rm(sourceDir(project), { recursive: true, force: true });
       await fs.mkdir(projectDir(project), { recursive: true });
       log.system(`Cloning ${project.repoUrl}${project.branch ? ` (${project.branch})` : ''}`);
-      await ClonerService.clone(project.repoUrl, project.branch, sourceDir(project), log.write);
+      await ClonerService.clone(project.repoUrl, project.branch, sourceDir(project), log.write, await GitHubService.gitEnv(project.githubInstallationId));
 
       const commit = await ClonerService.headCommit(sourceDir(project));
       const srcDir = await safeWorkDir(project);

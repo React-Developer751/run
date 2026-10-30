@@ -1,4 +1,5 @@
 import './env.js';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
@@ -10,6 +11,21 @@ const num = (value: string | undefined, fallback: number): number => {
 };
 
 const proxyPort = num(env.HOSTX_PROXY_PORT, 8080);
+const webOrigins = (env.HOSTX_WEB_ORIGIN ?? 'http://localhost:3000').split(',').map((s) => s.trim());
+const smtpUrl = env.HOSTX_SMTP_URL || null;
+
+/** PEM from HOSTX_GITHUB_PRIVATE_KEY (literal "\n" allowed, for one-line .env files) or HOSTX_GITHUB_PRIVATE_KEY_FILE. */
+function githubPrivateKey(): string | null {
+  if (env.HOSTX_GITHUB_PRIVATE_KEY) return env.HOSTX_GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n');
+  if (env.HOSTX_GITHUB_PRIVATE_KEY_FILE) {
+    try {
+      return readFileSync(env.HOSTX_GITHUB_PRIVATE_KEY_FILE, 'utf8');
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
 const publicScheme: 'http' | 'https' = env.HOSTX_PUBLIC_SCHEME === 'https' ? 'https' : 'http';
 const publicPort = num(env.HOSTX_PUBLIC_PORT, proxyPort);
 
@@ -37,7 +53,30 @@ export const config = {
   publicPort,
 
   // Comma separated list of dashboard origins allowed to call the API.
-  webOrigins: (env.HOSTX_WEB_ORIGIN ?? 'http://localhost:3000').split(',').map((s) => s.trim()),
+  webOrigins,
+  // Links in emails and redirects after the GitHub connect flow point here.
+  dashboardUrl: (env.HOSTX_DASHBOARD_URL ?? webOrigins[0] ?? 'http://localhost:3000').replace(/\/+$/, ''),
+
+  // Outgoing email: smtps://user:pass@smtp.example.com:465 or smtp://user:pass@smtp.example.com:587 (STARTTLS).
+  // Without it, emails are printed to the engine log in development and skipped in production.
+  mail: {
+    smtpUrl,
+    from: env.HOSTX_MAIL_FROM ?? 'HostX <no-reply@localhost>',
+  },
+  // Unverified accounts may sign in but not deploy. Default: on whenever email can actually be sent.
+  requireVerifiedEmail: env.HOSTX_REQUIRE_VERIFIED_EMAIL ? env.HOSTX_REQUIRE_VERIFIED_EMAIL === 'true' : Boolean(smtpUrl),
+  // Cloudflare Turnstile secret: when set, sign-up and "forgot password" require a CAPTCHA.
+  turnstileSecret: env.HOSTX_TURNSTILE_SECRET || null,
+
+  // GitHub App (private repositories + one webhook for every repo). All fields are needed to turn it on.
+  github: {
+    appId: env.HOSTX_GITHUB_APP_ID ?? '',
+    appSlug: env.HOSTX_GITHUB_APP_SLUG ?? '',
+    clientId: env.HOSTX_GITHUB_CLIENT_ID ?? '',
+    clientSecret: env.HOSTX_GITHUB_CLIENT_SECRET ?? '',
+    webhookSecret: env.HOSTX_GITHUB_WEBHOOK_SECRET ?? '',
+    privateKey: githubPrivateKey(),
+  },
 
   // auto | docker | process
   runner: (env.HOSTX_RUNNER ?? 'auto').toLowerCase(),

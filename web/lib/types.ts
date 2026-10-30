@@ -6,6 +6,10 @@ export interface User {
   name: string;
   email: string;
   role: 'admin' | 'user';
+  emailVerified: boolean;
+  /** true when unverified accounts cannot deploy on this server. */
+  verificationRequired: boolean;
+  github: { login: string } | null;
 }
 
 export interface Project {
@@ -22,6 +26,8 @@ export interface Project {
   framework: string | null;
   env: Record<string, string>;
   autoDeploy: boolean;
+  /** Cloned through the HostX GitHub App (private repository support). */
+  viaGitHubApp: boolean;
   /** Managed MongoDB add-on; the URI contains the password (owner-only). */
   database: { name: string; user: string; uri: string; createdAt: string } | null;
   webhook: { url: string; secret: string };
@@ -66,6 +72,26 @@ export interface Health {
   urlTemplate: string;
   /** true when the server can create MongoDB databases. */
   databases?: boolean;
+  github?: boolean;
+  captcha?: boolean;
+}
+
+export interface GitHubStatus {
+  enabled: boolean;
+  connected: boolean;
+  login: string | null;
+  installations: number;
+  installUrl?: string;
+  authorizeUrl?: string;
+}
+
+export interface GitHubRepo {
+  fullName: string;
+  url: string;
+  private: boolean;
+  defaultBranch: string;
+  installationId: number;
+  pushedAt: string | null;
 }
 
 export interface AdminUser {

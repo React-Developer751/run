@@ -15,6 +15,7 @@ import {
 import { AuthService } from '../services/auth.service.js';
 import { ClonerService } from '../services/cloner.service.js';
 import { DeployService } from '../services/deploy.service.js';
+import { GitHubService } from '../services/github.service.js';
 import { DeployLog } from '../services/log.service.js';
 import { MongoService } from '../services/mongo.service.js';
 import { RunnerService } from '../services/runner.service.js';
@@ -33,6 +34,7 @@ export const toPublicProject = (p: Project) => ({
   framework: p.framework,
   env: p.env,
   autoDeploy: p.autoDeploy,
+  viaGitHubApp: p.githubInstallationId !== null,
   // Owner-only view (like env): the connection string includes the password.
   database: p.database ? { name: p.database.name, user: p.database.user, uri: MongoService.uri(p.database), createdAt: p.database.createdAt } : null,
   webhook: { url: `${config.apiPublicUrl}/api/webhooks/github/${p.id}`, secret: p.webhookSecret },
@@ -72,6 +74,8 @@ export class DeployController {
       runner: RunnerService.current().name,
       urlTemplate: projectUrl('{slug}'),
       databases: MongoService.available(),
+      github: GitHubService.enabled(),
+      captcha: Boolean(config.turnstileSecret),
       signupOpen: Store.allUsers().length === 0 || (Store.settings().allowSignup ?? config.allowSignup),
       time: new Date().toISOString(),
     };
@@ -79,18 +83,19 @@ export class DeployController {
 
   /** Clones the repo to a temp folder and lists every sub-folder holding a package.json. */
   static async scan(ctx: Ctx) {
-    AuthService.requireUser(ctx.user);
+    const user = AuthService.requireVerified(ctx.user);
     const body = await ctx.json();
     const { url, repoName } = validateRepoUrl(body.repoUrl);
     const branch = validateBranch(body.branch);
+    const installationId = await GitHubService.authorizeRepo(user, body.githubInstallationId, url);
 
     if (activeScans >= 3) throw new HttpError(429, 'Too many scans running, try again in a moment');
     activeScans++;
     try {
-      const folders = await ClonerService.scan(url, branch);
+      const folders = await ClonerService.scan(url, branch, await GitHubService.gitEnv(installationId));
       return { repoName, folders };
     } catch (err) {
-      throw new HttpError(422, `Could not read the repository. Is it public, and does the branch exist? (${(err as Error).message})`);
+      throw new HttpError(422, `Could not read the repository. Is it public (or connected through GitHub), and does the branch exist? (${(err as Error).message})`);
     } finally {
       activeScans--;
     }
@@ -102,10 +107,11 @@ export class DeployController {
   }
 
   static async create(ctx: Ctx) {
-    const user = AuthService.requireUser(ctx.user);
+    const user = AuthService.requireVerified(ctx.user);
     const body = await ctx.json();
     const { url, repoName } = validateRepoUrl(body.repoUrl);
     deployLimiter.hit(user.id);
+    const githubInstallationId = await GitHubService.authorizeRepo(user, body.githubInstallationId, url);
 
     const { project, deployment } = await DeployService.createProject({
       userId: user.id,
@@ -120,6 +126,7 @@ export class DeployController {
       outputDir: validateOutputDir(body.outputDir),
       autoDeploy: body.autoDeploy === undefined ? true : body.autoDeploy === true,
       database: body.database === true,
+      githubInstallationId,
     });
     ctx.status = 201;
     return { project: toPublicProject(project), deployment: toPublicDeployment(deployment) };
@@ -153,6 +160,7 @@ export class DeployController {
   }
 
   static async redeploy(ctx: Ctx) {
+    AuthService.requireVerified(ctx.user);
     const project = ownedProject(ctx);
     deployLimiter.hit(project.userId);
     const deployment = await DeployService.deploy(project, 'redeploy');
