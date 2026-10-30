@@ -1,6 +1,7 @@
+import crypto from 'node:crypto';
 import { config } from '../config/index.js';
 import type { Ctx } from '../utils/http.js';
-import { HttpError } from '../utils/http.js';
+import { HttpError, parseCookies, secureCookies } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { RateLimiter } from '../utils/rateLimit.js';
 import { AuthService } from '../services/auth.service.js';
@@ -10,6 +11,11 @@ import { SessionService } from '../services/session.service.js';
 import { Store } from '../services/store.service.js';
 
 const limiter = new RateLimiter(300, 60 * 1000);
+const loginLimiter = new RateLimiter(30, 15 * 60 * 1000);
+
+const NONCE_COOKIE = 'hostx_gh_login';
+const nonceCookie = (ctx: Ctx, value: string, maxAge: number) =>
+  `${NONCE_COOKIE}=${value}; Max-Age=${maxAge}; Path=/api/auth/github; HttpOnly; SameSite=Lax${secureCookies(ctx.req) ? '; Secure' : ''}`;
 const repoLimiter = new RateLimiter(30, 60 * 1000, 'Too many requests to GitHub. Wait a moment.');
 
 function redirect(ctx: Ctx, to: string): { ok: true } {
@@ -26,22 +32,58 @@ export class GitHubController {
       connected: Boolean(user.github),
       login: user.github?.login ?? null,
       installations: user.github?.installationIds.length ?? 0,
-      ...(GitHubService.enabled() ? GitHubService.connectUrls(user) : {}),
+      ...(GitHubService.enabled() ? GitHubService.connectUrls(user, ctx.query.get('return') === 'new' ? 'new' : undefined) : {}),
     };
+  }
+
+  /** Starts "Continue with GitHub". The nonce cookie ties the GitHub round trip to this browser (login CSRF). */
+  static login(ctx: Ctx) {
+    if (!GitHubService.enabled()) return redirect(ctx, `${config.dashboardUrl}/login?github=disabled`);
+    loginLimiter.hit(`gh-login:${ctx.ip}`);
+    const nonce = crypto.randomBytes(18).toString('base64url');
+    ctx.res.setHeader('Set-Cookie', nonceCookie(ctx, nonce, 600));
+    return redirect(ctx, GitHubService.loginUrl(nonce));
   }
 
   /**
    * GitHub sends the browser here after installing the app or authorizing it (top-level GET, so the Lax session
-   * cookies come along). The signed-in session must belong to the user in the signed state: otherwise an attacker
-   * could send a victim their own link and get the victim's GitHub installations linked to the attacker's account.
+   * cookies come along). Two flows share it, told apart by the signed state:
+   * - sign-in ("login~<nonce>"): the nonce must match this browser's cookie;
+   * - linking ("<userId>"): the signed-in session must be that user. Otherwise an attacker could send a victim their
+   *   own link and get the victim's GitHub installations linked to the attacker's account.
    * Lives under /api/auth so the refresh cookie is sent too (the 15-minute access token may expire while on GitHub).
    */
   static async callback(ctx: Ctx) {
-    const back = (result: string) => redirect(ctx, `${config.dashboardUrl}/account?github=${result}`);
-    const user = ctx.user ?? (await SessionService.refresh(ctx.req, ctx.res).catch(() => null));
-    if (!user || user.suspended) return redirect(ctx, `${config.dashboardUrl}/login`);
     const code = ctx.query.get('code');
     const state = ctx.query.get('state') ?? '';
+    const subject = GitHubService.readState(state);
+
+    if (subject?.startsWith('login~')) {
+      const fail = (reason: string) => {
+        ctx.res.setHeader('Set-Cookie', nonceCookie(ctx, '', 0));
+        return redirect(ctx, `${config.dashboardUrl}/login?github=${reason}`);
+      };
+      const cookieNonce = parseCookies(ctx.headers.cookie)[NONCE_COOKIE];
+      if (!code || !cookieNonce || subject !== `login~${cookieNonce}`) return fail('expired');
+      try {
+        const { user, created } = await GitHubService.signIn(code);
+        if (user.suspended) return fail('suspended');
+        await SessionService.start(user, ctx.req, ctx.res);
+        ctx.res.appendHeader('Set-Cookie', nonceCookie(ctx, '', 0));
+        // New accounts, and accounts without projects yet, go straight to deploying.
+        const next = created || Store.projectsOf(user.id).length === 0 ? '/new' : '/dashboard';
+        return redirect(ctx, `${config.dashboardUrl}${next}`);
+      } catch (err) {
+        const message = (err as Error).message;
+        logger.warn(`GitHub sign-in failed: ${message}`);
+        return fail(['signup-closed', 'no-verified-email'].includes(message) ? message : 'failed');
+      }
+    }
+
+    const user = ctx.user ?? (await SessionService.refresh(ctx.req, ctx.res).catch(() => null));
+    if (!user || user.suspended) return redirect(ctx, `${config.dashboardUrl}/login`);
+    const toNew = subject?.endsWith('~new');
+    const back = (result: string) => redirect(ctx, `${config.dashboardUrl}${toNew ? '/new' : '/account'}?github=${result}`);
     if (!code) return back(ctx.query.get('setup_action') === 'request' ? 'requested' : 'missing-code');
     if (!GitHubService.checkState(state, user.id)) return back('expired');
     try {
@@ -49,7 +91,7 @@ export class GitHubController {
       return back('connected');
     } catch (err) {
       logger.warn(`GitHub connect for ${user.email} failed: ${(err as Error).message}`);
-      return back('failed');
+      return back((err as { status?: number }).status === 409 ? 'taken' : 'failed');
     }
   }
 

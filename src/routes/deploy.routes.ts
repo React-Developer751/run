@@ -29,6 +29,7 @@ export function registerDeployRoutes(router: Router): void {
 
   router.get('/api/github', GitHubController.status);
   router.delete('/api/github', GitHubController.unlink);
+  router.get('/api/auth/github/login', GitHubController.login);
   router.get('/api/auth/github/callback', GitHubController.callback);
   router.get('/api/github/repos', GitHubController.repos);
   router.post('/api/github/webhook', GitHubController.webhook);

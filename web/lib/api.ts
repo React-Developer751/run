@@ -1,6 +1,8 @@
 import type { AdminNotification, StorageReport, AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+/** Engine URL, for full-page navigations such as "Continue with GitHub". */
+export const API_BASE = BASE;
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -89,7 +91,8 @@ export const api = {
   },
 
   github: {
-    status: () => request<GitHubStatus>('/api/github'),
+    /** `returnTo: 'new'` makes the GitHub install/authorize links come back to the New deploy page. */
+    status: (returnTo?: 'new') => request<GitHubStatus>(`/api/github${returnTo ? '?return=new' : ''}`),
     repos: () => request<{ repos: GitHubRepo[] }>('/api/github/repos'),
     unlink: () => request<{ ok: true }>('/api/github', 'DELETE'),
   },

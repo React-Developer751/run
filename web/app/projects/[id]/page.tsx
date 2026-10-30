@@ -249,6 +249,10 @@ export default function ProjectPage() {
           <div><small>Repository</small><span><a href={project.repoUrl.replace(/\.git$/, '')} target="_blank" rel="noreferrer">{repoLabel(project.repoUrl)}</a></span></div>
           <div><small>Folder</small><span className="mono">{project.rootDir === '.' ? '/ (root)' : `${project.rootDir}/`}</span></div>
           <div><small>Branch</small><span className="mono">{project.branch ?? 'default'}</span></div>
+          <div>
+            <small>Auto-deploy</small>
+            <span>{project.autoDeploy ? `On · every push${project.viaGitHubApp ? ' (instant)' : ''}` : 'Off'}</span>
+          </div>
           <div><small>Framework</small><span>{project.framework ?? '—'}{project.kind ? ` · ${project.kind === 'static' ? 'static' : 'service'}` : ''}</span></div>
           <div><small>Commit</small><span className="mono">{project.commit ?? '—'}</span></div>
           <div><small>Updated</small><span>{timeAgo(project.updatedAt)}</span></div>

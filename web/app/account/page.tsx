@@ -188,7 +188,10 @@ export default function AccountPage() {
           <form className="card stack" onSubmit={submit}>
             <div>
               <h2 style={{ fontSize: 18 }}>Change password</h2>
-              <p className="muted" style={{ marginTop: 6 }}>Other devices are signed out when you change it.</p>
+              <p className="muted" style={{ marginTop: 6 }}>
+                Other devices are signed out when you change it. Signed up with GitHub? You have no password yet: use{' '}
+                <a href="/forgot-password">Forgot password</a> to set one.
+              </p>
             </div>
             <div className="field">
               <label className="label" htmlFor="cur">Current password</label>

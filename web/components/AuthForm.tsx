@@ -3,8 +3,19 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
+import { API_BASE, api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { Icon } from './Icon';
 import { Nav } from './Nav';
+
+const GITHUB_ERRORS: Record<string, string> = {
+  expired: 'The GitHub sign-in took too long or was opened in another browser. Please try again.',
+  failed: 'GitHub sign-in did not work. Please try again.',
+  'signup-closed': 'New sign-ups are closed on this server.',
+  'no-verified-email': 'Your GitHub account has no verified email address we can use. Verify one on GitHub, or sign up with email.',
+  suspended: 'This account has been suspended. Contact your administrator.',
+  disabled: 'Sign-in with GitHub is not available on this server.',
+};
 
 export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   const { user, loading, signIn, signUp } = useAuth();
@@ -15,6 +26,14 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [accepted, setAccepted] = useState(false);
+  const [githubOn, setGithubOn] = useState(false);
+
+  // Show "Continue with GitHub" only when the server has a GitHub App, and explain a failed GitHub sign-in.
+  useEffect(() => {
+    api.health().then((h) => setGithubOn(Boolean(h.github))).catch(() => undefined);
+    const reason = new URLSearchParams(window.location.search).get('github');
+    if (reason && GITHUB_ERRORS[reason]) setError(GITHUB_ERRORS[reason]);
+  }, []);
   const isLogin = mode === 'login';
 
   useEffect(() => {
@@ -45,6 +64,20 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
             {!isLogin && <span className="serif grad-text">account</span>}
           </h1>
           <p className="muted">{isLogin ? 'Sign in to manage your deployments.' : 'Free forever. Deploy your first repo in minutes.'}</p>
+
+          {githubOn && (
+            <>
+              <a className="btn btn-lg btn-github" href={`${API_BASE}/api/auth/github/login`} style={{ marginTop: 24 }}>
+                <Icon name="github" /> Continue with GitHub
+              </a>
+              {!isLogin && (
+                <p className="hint" style={{ marginTop: 8, textAlign: 'center' }}>
+                  By continuing with GitHub you agree to the <Link href="/terms">Terms</Link> and <Link href="/privacy">Privacy Policy</Link>.
+                </p>
+              )}
+              <div className="auth-or">or with email</div>
+            </>
+          )}
 
           <form onSubmit={submit}>
             {!isLogin && (

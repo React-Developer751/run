@@ -29,7 +29,8 @@ export interface User {
   /** null = the address was never confirmed. Accounts from before verification existed count as verified. */
   emailVerifiedAt: string | null;
   /** Linked GitHub account and the GitHub App installations it can use. */
-  github: { login: string; installationIds: number[]; linkedAt: string } | null;
+  /** `id` is GitHub's numeric user id (stable even if the login changes); set when linked or signed in with GitHub. */
+  github: { id?: number; login: string; installationIds: number[]; linkedAt: string } | null;
   plan: PlanId;
   /** When the user accepted the Terms and Privacy Policy, and which version (null = before acceptance was recorded). */
   termsAcceptedAt: string | null;
@@ -351,6 +352,10 @@ export class Store {
 
   static getUserByEmail(email: string): User | undefined {
     return this.db.users.find((u) => u.email === email);
+  }
+
+  static getUserByGithubId(githubId: number): User | undefined {
+    return this.db.users.find((u) => u.github?.id === githubId);
   }
 
   static allUsers(): User[] {

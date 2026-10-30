@@ -106,32 +106,74 @@ export class GitHubService {
     };
   }
 
-  // ── connect flow ───────────────────────────────────────
-  /** Signed, expiring state binding the GitHub round trip to the HostX user who started it. */
-  private static state(userId: string): string {
-    const payload = `${userId}.${Date.now() + STATE_TTL_MS}`;
+  // ── connect / sign-in flow ─────────────────────────────
+  /**
+   * Signed, expiring OAuth state. The subject is "<userId>" or "<userId>~new" (linking, bound to the signed-in user)
+   * or "login~<nonce>" (sign-in, bound to a nonce cookie in the same browser). No dots in subjects.
+   */
+  private static state(subject: string): string {
+    const payload = `${subject}.${Date.now() + STATE_TTL_MS}`;
     return `${payload}.${AuthService.signValue(`gh-state:${payload}`)}`;
   }
 
-  static checkState(state: string, userId: string): boolean {
+  /** The subject of a valid, unexpired state, or null. */
+  static readState(state: string): string | null {
     const parts = state.split('.');
-    if (parts.length !== 3) return false;
-    const [uid, exp, sig] = parts as [string, string, string];
-    const expected = Buffer.from(AuthService.signValue(`gh-state:${uid}.${exp}`));
+    if (parts.length !== 3) return null;
+    const [subject, exp, sig] = parts as [string, string, string];
+    const expected = Buffer.from(AuthService.signValue(`gh-state:${subject}.${exp}`));
     const given = Buffer.from(sig);
-    return uid === userId && Number(exp) > Date.now() && expected.length === given.length && crypto.timingSafeEqual(expected, given);
+    if (!(Number(exp) > Date.now() && expected.length === given.length && crypto.timingSafeEqual(expected, given))) return null;
+    return subject;
   }
 
-  static connectUrls(user: User): { installUrl: string; authorizeUrl: string } {
-    this.requireEnabled();
-    const state = encodeURIComponent(this.state(user.id));
+  static checkState(state: string, userId: string): boolean {
+    return this.readState(state)?.split('~')[0] === userId;
+  }
+
+  private static authorizeUrl(state: string): string {
     const redirect = encodeURIComponent(`${config.apiPublicUrl}/api/auth/github/callback`);
+    return `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(config.github.clientId)}&state=${encodeURIComponent(state)}&redirect_uri=${redirect}`;
+  }
+
+  /** `returnTo: 'new'` brings the user back to the New deploy page after picking repositories. */
+  static connectUrls(user: User, returnTo?: 'new'): { installUrl: string; authorizeUrl: string } {
+    this.requireEnabled();
+    const state = this.state(returnTo ? `${user.id}~${returnTo}` : user.id);
     return {
       // New install / pick repositories. With "Request user authorization during installation" enabled, GitHub comes back with ?code.
-      installUrl: `https://github.com/apps/${config.github.appSlug}/installations/new?state=${state}`,
+      installUrl: `https://github.com/apps/${config.github.appSlug}/installations/new?state=${encodeURIComponent(state)}`,
       // The app is already installed (e.g. by a teammate): just prove who you are.
-      authorizeUrl: `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(config.github.clientId)}&state=${state}&redirect_uri=${redirect}`,
+      authorizeUrl: this.authorizeUrl(state),
     };
+  }
+
+  /** "Continue with GitHub" on the login/register page. `nonce` is also stored in a short-lived cookie. */
+  static loginUrl(nonce: string): string {
+    this.requireEnabled();
+    return this.authorizeUrl(this.state(`login~${nonce}`));
+  }
+
+  /** Exchanges the OAuth code for a user token. The token is never stored: HostX acts through installation tokens. */
+  private static async userAuth(code: string): Promise<string> {
+    const oauth = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'HostX' },
+      body: JSON.stringify({ client_id: config.github.clientId, client_secret: config.github.clientSecret, code }),
+      signal: AbortSignal.timeout(15_000),
+    }).then((r) => r.json() as Promise<{ access_token?: string; error_description?: string }>);
+    if (!oauth.access_token) throw new HttpError(400, oauth.error_description ?? 'GitHub did not accept the sign-in. Please try again.');
+    return `Bearer ${oauth.access_token}`;
+  }
+
+  private static async userInstallations(auth: string): Promise<number[]> {
+    const ids: number[] = [];
+    for (let page = 1; page <= 5; page++) {
+      const r = await this.request<{ installations: Array<{ id: number }> }>(`/user/installations?per_page=100&page=${page}`, auth);
+      ids.push(...r.installations.map((i) => i.id));
+      if (r.installations.length < 100) break;
+    }
+    return [...new Set(ids)];
   }
 
   /**
@@ -140,24 +182,72 @@ export class GitHubService {
    */
   static async link(user: User, code: string): Promise<User> {
     this.requireEnabled();
-    const oauth = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'HostX' },
-      body: JSON.stringify({ client_id: config.github.clientId, client_secret: config.github.clientSecret, code }),
-      signal: AbortSignal.timeout(15_000),
-    }).then((r) => r.json() as Promise<{ access_token?: string; error_description?: string }>);
-    if (!oauth.access_token) throw new HttpError(400, oauth.error_description ?? 'GitHub did not accept the sign-in. Please try again.');
+    const auth = await this.userAuth(code);
+    const me = await this.request<{ id: number; login: string }>('/user', auth);
+    const other = Store.getUserByGithubId(me.id);
+    if (other && other.id !== user.id) throw new HttpError(409, `@${me.login} is already linked to another ${config.dashboardUrl} account`);
+    return Store.updateUser(user.id, { github: { id: me.id, login: me.login, installationIds: await this.userInstallations(auth), linkedAt: new Date().toISOString() } });
+  }
 
-    const auth = `Bearer ${oauth.access_token}`;
-    const me = await this.request<{ login: string }>('/user', auth);
-    const ids: number[] = [];
-    for (let page = 1; page <= 5; page++) {
-      const r = await this.request<{ installations: Array<{ id: number; app_slug?: string }> }>(`/user/installations?per_page=100&page=${page}`, auth);
-      ids.push(...r.installations.map((i) => i.id));
-      if (r.installations.length < 100) break;
+  /** The GitHub account's verified primary email (needs the app's "Email addresses: read" permission). */
+  private static async verifiedEmail(auth: string, profileEmail: string | null): Promise<string | null> {
+    try {
+      const emails = await this.request<Array<{ email: string; primary: boolean; verified: boolean }>>('/user/emails', auth);
+      return (emails.find((e) => e.primary && e.verified) ?? emails.find((e) => e.verified))?.email.toLowerCase() ?? null;
+    } catch {
+      // GitHub only lets users show a verified address publicly, so the profile email is a safe fallback.
+      return profileEmail?.toLowerCase() ?? null;
     }
-    // The user token is not stored: HostX only ever acts through installation tokens.
-    return Store.updateUser(user.id, { github: { login: me.login, installationIds: [...new Set(ids)], linkedAt: new Date().toISOString() } });
+  }
+
+  /**
+   * "Continue with GitHub": signs in the HostX account linked to this GitHub user, or the account with the same
+   * verified email (and links it), or creates one. Returns the user and whether it was just created.
+   */
+  static async signIn(code: string): Promise<{ user: User; created: boolean }> {
+    this.requireEnabled();
+    const auth = await this.userAuth(code);
+    const me = await this.request<{ id: number; login: string; name: string | null; email: string | null }>('/user', auth);
+    const installationIds = await this.userInstallations(auth);
+    const github = { id: me.id, login: me.login, installationIds, linkedAt: new Date().toISOString() };
+
+    const linked = Store.getUserByGithubId(me.id);
+    if (linked) return { user: await Store.updateUser(linked.id, { github, lastLoginAt: new Date().toISOString() }), created: false };
+
+    const email = await this.verifiedEmail(auth, me.email);
+    if (!email) throw new HttpError(400, 'no-verified-email');
+    const existing = Store.getUserByEmail(email);
+    if (existing) {
+      // GitHub has verified this address, so it is the same person: link and confirm the email.
+      const user = await Store.updateUser(existing.id, { github, lastLoginAt: new Date().toISOString(), emailVerifiedAt: existing.emailVerifiedAt ?? new Date().toISOString() });
+      return { user, created: false };
+    }
+
+    const firstAccount = Store.allUsers().length === 0;
+    if (!firstAccount && !(Store.settings().allowSignup ?? config.allowSignup)) throw new HttpError(403, 'signup-closed');
+    const now = new Date().toISOString();
+    const name = (me.name?.trim() || me.login).slice(0, 60).padEnd(2, '_');
+    const user = await Store.addUser({
+      id: Store.newId('u'),
+      name,
+      email,
+      // No password: GitHub sign-in only, until the user sets one with "Forgot password".
+      passwordHash: await AuthService.hashPassword(crypto.randomBytes(32).toString('base64url')),
+      role: firstAccount || (config.adminEmail !== '' && email === config.adminEmail) ? 'admin' : 'user',
+      suspended: false,
+      maxProjects: null,
+      lastLoginAt: now,
+      passwordChangedAt: null,
+      emailVerifiedAt: now,
+      github,
+      plan: 'free',
+      // The button says "By continuing you agree to the Terms and Privacy Policy".
+      termsAcceptedAt: now,
+      termsVersion: config.termsVersion,
+      subscription: null,
+      createdAt: now,
+    });
+    return { user, created: true };
   }
 
   static async unlink(user: User): Promise<User> {

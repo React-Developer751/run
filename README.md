@@ -164,6 +164,12 @@ Users "Connect GitHub" karke apni private repos deploy kar sakte hain. HostX sir
 - "Any account" par installable rakho (public SaaS ke liye)
 - Banne ke baad private key (.pem) download karo
 
+- Permissions → Account: **Email addresses: Read-only** ("Continue with GitHub" ko verified email chahiye)
+
+**Continue with GitHub (login/sign-up):** login aur register page par button. Pehli baar: account ban jata hai (GitHub ka verified email, email verification nahi chahiye), aur user seedha **New deploy** par jata hai jahan uski repos dikhti hain. Usi email ka account pehle se ho to wahi jud jata hai. Login-CSRF se bachne ke liye ek short-lived nonce cookie GitHub round-trip ko usi browser se bandhti hai. Signups band hon to naye GitHub users ka account nahi banta. GitHub se bane account mein password nahi hota ("Forgot password" se set kar sakte hain).
+
+**New deploy (Render jaisa):** 1) Web Service ya Static Site chuno → 2) apni repos mein search karo (ya public URL paste karo), "Connect" → 3) settings auto-detect, chune gaye type se match karta folder pehle chuna jata hai; folder doosre type ka nikle to "Deploy as …" ka sujhav. Auto-deploy default on: GitHub App wali repos par push hote hi (webhook), baaki par ~1 min mein (polling).
+
 Engine env: `HOSTX_GITHUB_APP_ID`, `HOSTX_GITHUB_APP_SLUG` (URL wala naam), `HOSTX_GITHUB_CLIENT_ID`, `HOSTX_GITHUB_CLIENT_SECRET`, `HOSTX_GITHUB_WEBHOOK_SECRET`, aur `HOSTX_GITHUB_PRIVATE_KEY_FILE=/opt/hostx/github-app.pem` (ya poori PEM `HOSTX_GITHUB_PRIVATE_KEY` mein, `\n` ke saath). git >= 2.31 chahiye.
 
 Security: callback par installation id par bharosa nahi kiya jata. OAuth code se GitHub se poocha jata hai ki is GitHub user ko kaunsi installations dikhti hain, aur signed `state` usi HostX user ka hona chahiye jo signed-in hai. Public repos bina connect kiye pehle jaisi chalti hain.

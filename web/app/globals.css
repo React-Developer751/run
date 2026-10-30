@@ -530,3 +530,31 @@ p { margin: 0; }
 /* MongoDB Atlas guide */
 .atlas-steps { padding-left: 22px; display: flex; flex-direction: column; gap: 14px; line-height: 1.6; }
 .atlas-steps a { color: var(--accent); }
+
+/* New deploy wizard */
+.type-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.type-card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; cursor: pointer; padding: 26px; font: inherit; color: inherit; }
+.type-card b { font-size: 19px; }
+.type-card .muted { font-size: 14.5px; line-height: 1.5; }
+.type-go { margin-top: 10px; display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-weight: 600; font-size: 14px; }
+.crumbs-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.crumbs-row .chip .icon { width: 14px; height: 14px; }
+.search-box { position: relative; }
+.search-box > .icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--dim); width: 18px; height: 18px; }
+.search-box .input { padding-left: 42px; }
+.repo-list { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; max-height: 380px; overflow-y: auto; }
+.repo-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: none; border: 0; border-bottom: 1px solid var(--line); text-align: left; cursor: pointer; font: inherit; color: inherit; width: 100%; }
+.repo-row:last-child { border-bottom: 0; }
+.repo-row:hover { background: var(--s1); }
+.repo-row > .icon { color: var(--dim); flex: none; }
+.repo-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.repo-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.repo-main small { color: var(--muted); font-size: 12.5px; }
+.card > .repo-row { border: 1px solid var(--line-strong); border-radius: 12px; }
+
+/* Sign in with GitHub */
+.btn-github { width: 100%; justify-content: center; background: #1b1f24; color: #fff; border-color: #1b1f24; }
+.btn-github:hover { background: #2d333b; }
+.auth-or { display: flex; align-items: center; gap: 12px; color: var(--dim); font-size: 12.5px; margin: 18px 0 0; }
+.auth-or::before, .auth-or::after { content: ''; flex: 1; border-top: 1px solid var(--line); }
+@media (max-width: 560px) { .type-grid { grid-template-columns: 1fr; } }
