@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, pageMetadata } from '@/lib/site';
-import { getSiteName } from '@/lib/brand';
+import { pageMetadata } from '@/lib/site';
+import { getLegal, getSiteName } from '@/lib/brand';
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteName = await getSiteName();
@@ -13,7 +13,8 @@ export async function generateMetadata(): Promise<Metadata> {
   });
 }
 
-export default function RefundPolicyPage() {
+export default async function RefundPolicyPage() {
+  const legal = await getLegal();
   return (
     <LegalPage title="Cancellation & Refund Policy">
       <h2>Cancelling</h2>
@@ -29,7 +30,7 @@ export default function RefundPolicyPage() {
         <li>Because the Service is delivered instantly and you can use the Free plan before paying, payments for a started billing period are generally non-refundable, including for partial months.</li>
         <li>We refund in full: duplicate charges, charges after a cancellation that was confirmed in the dashboard, and charges caused by a technical error on our side.</li>
         <li>If the Service was unavailable for an extended period in a month due to our fault, write to us and we will offer a pro-rated credit or refund.</li>
-        <li>Request a refund within 7 days of the charge at {LEGAL.email} with your account email and the Razorpay payment id.</li>
+        <li>Request a refund within 7 days of the charge at {legal.email} with your account email and the Razorpay payment id.</li>
         <li>Approved refunds are issued to the original payment method through Razorpay within 5–7 business days; your bank may take a few more days to show it.</li>
       </ul>
     </LegalPage>

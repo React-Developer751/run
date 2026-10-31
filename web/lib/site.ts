@@ -27,19 +27,47 @@ export function pageMetadata({ title, description, path, name, absoluteTitle = f
  * Business details shown on the legal and contact pages (Razorpay and Indian law need real ones).
  * Set them at build time; anything left unset shows a visible [placeholder] so it cannot go live unnoticed.
  */
-const env = (v: string | undefined, placeholder: string) => (v && v.trim() ? v.trim() : `[${placeholder}]`);
-export const LEGAL = {
-  company: env(process.env.NEXT_PUBLIC_LEGAL_COMPANY, 'Registered business name'),
-  address: env(process.env.NEXT_PUBLIC_LEGAL_ADDRESS, 'Registered address, City, State, PIN, India'),
-  email: env(process.env.NEXT_PUBLIC_LEGAL_EMAIL, 'support@yourdomain.com'),
-  phone: env(process.env.NEXT_PUBLIC_LEGAL_PHONE, '+91 phone number'),
-  abuseEmail: env(process.env.NEXT_PUBLIC_LEGAL_ABUSE_EMAIL || process.env.NEXT_PUBLIC_LEGAL_EMAIL, 'abuse@yourdomain.com'),
-  grievanceOfficer: env(process.env.NEXT_PUBLIC_LEGAL_GRIEVANCE_OFFICER, 'Grievance Officer name'),
-  grievanceEmail: env(process.env.NEXT_PUBLIC_LEGAL_GRIEVANCE_EMAIL || process.env.NEXT_PUBLIC_LEGAL_EMAIL, 'grievance@yourdomain.com'),
-  jurisdiction: env(process.env.NEXT_PUBLIC_LEGAL_JURISDICTION, 'City, State'),
-  /** Keep in sync with HOSTX_TERMS_VERSION on the engine. */
-  updated: process.env.NEXT_PUBLIC_LEGAL_UPDATED || '30 October 2026',
+/** Business details the admin can set in Admin → Settings (each optional). */
+export interface BusinessDetails {
+  company?: string;
+  address?: string;
+  email?: string;
+  phone?: string;
+  abuseEmail?: string;
+  grievanceOfficer?: string;
+  grievanceEmail?: string;
+  jurisdiction?: string;
+}
+
+const pick = (placeholder: string, ...values: Array<string | undefined>) => {
+  const v = values.find((x) => x && x.trim());
+  return v ? v.trim() : `[${placeholder}]`;
 };
+
+/**
+ * Business details shown on the legal and contact pages and the footer (Razorpay and Indian law need real ones).
+ * Order: what the admin saved in Admin → Settings, then the NEXT_PUBLIC_LEGAL_* build values, then a visible
+ * [placeholder] so a missing value cannot go live unnoticed.
+ */
+export function legalFrom(b: BusinessDetails = {}) {
+  // Written out as process.env.NEXT_PUBLIC_… so Next.js also inlines them into browser code.
+  return {
+    company: pick('Registered business name', b.company, process.env.NEXT_PUBLIC_LEGAL_COMPANY),
+    address: pick('Registered address, City, State, PIN, India', b.address, process.env.NEXT_PUBLIC_LEGAL_ADDRESS),
+    email: pick('support@yourdomain.com', b.email, process.env.NEXT_PUBLIC_LEGAL_EMAIL),
+    phone: pick('+91 phone number', b.phone, process.env.NEXT_PUBLIC_LEGAL_PHONE),
+    abuseEmail: pick('abuse@yourdomain.com', b.abuseEmail, process.env.NEXT_PUBLIC_LEGAL_ABUSE_EMAIL, b.email, process.env.NEXT_PUBLIC_LEGAL_EMAIL),
+    grievanceOfficer: pick('Grievance Officer name', b.grievanceOfficer, process.env.NEXT_PUBLIC_LEGAL_GRIEVANCE_OFFICER),
+    grievanceEmail: pick('grievance@yourdomain.com', b.grievanceEmail, process.env.NEXT_PUBLIC_LEGAL_GRIEVANCE_EMAIL, b.email, process.env.NEXT_PUBLIC_LEGAL_EMAIL),
+    jurisdiction: pick('City, State', b.jurisdiction, process.env.NEXT_PUBLIC_LEGAL_JURISDICTION),
+    /** Keep in sync with HOSTX_TERMS_VERSION on the engine. */
+    updated: process.env.NEXT_PUBLIC_LEGAL_UPDATED || '30 October 2026',
+  };
+}
+export type Legal = ReturnType<typeof legalFrom>;
+
+/** Build-time values only (sitemap dates); pages use getLegal() / useLegal() to include the admin's values. */
+export const LEGAL = legalFrom();
 
 export const LEGAL_PAGES = [
   { href: '/terms', label: 'Terms of Service' },

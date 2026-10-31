@@ -12,7 +12,7 @@ import { repoLabel, timeAgo } from '@/lib/format';
 import type { Project } from '@/lib/types';
 import { useSiteName } from '@/components/BrandProvider';
 
-type FilterId = 'all' | 'active' | 'paused' | 'archived' | 'failed';
+type FilterId = 'all' | 'active' | 'paused' | 'archived' | 'failed' | 'suspended';
 type TypeFilter = 'all' | 'node' | 'static';
 
 const FILTERS: Array<{ id: FilterId; label: string; test: (p: Project) => boolean }> = [
@@ -21,6 +21,7 @@ const FILTERS: Array<{ id: FilterId; label: string; test: (p: Project) => boolea
   { id: 'paused', label: 'Paused / stopped', test: (p) => p.status === 'paused' || p.status === 'stopped' },
   { id: 'archived', label: 'Archived', test: (p) => p.status === 'archived' },
   { id: 'failed', label: 'Failed', test: (p) => p.status === 'failed' || p.status === 'crashed' },
+  { id: 'suspended', label: 'Suspended', test: (p) => p.status === 'suspended' },
 ];
 const FILTER_KEY = 'hostx:dashboard-filter';
 // Detected type, or the one chosen when creating it (before the first successful build).
@@ -125,7 +126,7 @@ export default function Dashboard() {
               )}
               <div className="list-toolbar">
                 <div className="seg-filter" role="tablist" aria-label="Filter projects">
-                  {FILTERS.map((f) => (
+                  {FILTERS.filter((f) => f.id !== 'suspended' || projects.some(f.test) || filter === 'suspended').map((f) => (
                     <button key={f.id} type="button" role="tab" aria-selected={filter === f.id} className={filter === f.id ? 'on' : ''} onClick={() => setFilter(f.id)}>
                       {f.label} <span className="seg-count">{projects.filter(f.test).length}</span>
                     </button>

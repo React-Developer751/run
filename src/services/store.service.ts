@@ -9,7 +9,7 @@ import { DeployLog } from './log.service.js';
 import { Vault } from './vault.service.js';
 import { setSiteName } from './brand.js';
 
-export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'paused' | 'archived';
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'paused' | 'archived' | 'suspended';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
 export type ProjectKind = 'static' | 'node';
 export type RuntimeKind = 'docker' | 'process' | 'static';
@@ -71,7 +71,12 @@ export interface Settings {
   plans?: PlanOverrides | null;
   /** Platform name shown everywhere (dashboard, emails, app status pages). null = DEFAULT_SITE_NAME. */
   siteName?: string | null;
+  /** Business details for the contact, legal and footer pages (Admin → Settings). Missing fields fall back to env. */
+  business?: BusinessDetails | null;
 }
+
+export const BUSINESS_FIELDS = ['company', 'address', 'email', 'phone', 'abuseEmail', 'grievanceOfficer', 'grievanceEmail', 'jurisdiction'] as const;
+export type BusinessDetails = Partial<Record<(typeof BUSINESS_FIELDS)[number], string>>;
 
 export { DEFAULT_SITE_NAME, SITE_NAME_PATTERN, siteName } from './brand.js';
 
@@ -137,6 +142,9 @@ export interface Project {
   archiveWarnedAt: string | null;
   /** Set while archived (cleared by a successful deploy): a failed restore stays "archived", not "failed". */
   archivedAt: string | null;
+  /** Suspended by an administrator (abuse, policy): offline, and only an admin can bring it back. */
+  suspendedAt: string | null;
+  suspendedReason: string | null;
   /** Newest commit HostX has seen on the branch. Auto-deploy compares against it, so a rollback is not undone by polling. */
   lastRemoteCommit: string | null;
   currentDeploymentId: string | null;
@@ -249,7 +257,7 @@ export interface ProjectEvent {
   id: string;
   projectId: string;
   at: string;
-  kind: 'crash' | 'restart' | 'recovered' | 'rollback' | 'paused' | 'archived';
+  kind: 'crash' | 'restart' | 'recovered' | 'rollback' | 'paused' | 'archived' | 'suspended' | 'unsuspended';
   message: string;
 }
 
@@ -290,6 +298,8 @@ const loadProject = ({ database: _removed, ...p }: Project & { database?: unknow
   pausedAt: p.pausedAt ?? null,
   archiveWarnedAt: p.archiveWarnedAt ?? null,
   archivedAt: p.archivedAt ?? (p.status === 'archived' ? p.updatedAt : null),
+  suspendedAt: p.suspendedAt ?? null,
+  suspendedReason: p.suspendedReason ?? null,
 });
 
 const projectDoc = (p: Project): string =>

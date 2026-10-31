@@ -139,7 +139,7 @@ export class GitHubController {
     for (const project of Store.allProjects()) {
       if (project.githubInstallationId !== installationId || project.repoUrl.toLowerCase() !== repoUrl) continue;
       if (payload.ref !== `refs/heads/${project.branch ?? repo.default_branch ?? 'main'}`) continue;
-      if (!project.autoDeploy || project.status === 'deploying' || project.status === 'stopped') continue;
+      if (!project.autoDeploy || project.status === 'deploying' || project.status === 'stopped' || project.status === 'suspended') continue;
       const deployment = await DeployService.deploy(project, 'auto').catch((err: Error) => {
         logger.warn(`Webhook deploy of ${project.slug} skipped: ${err.message}`);
         return null;

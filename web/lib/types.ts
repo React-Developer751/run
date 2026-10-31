@@ -1,4 +1,4 @@
-export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'paused' | 'archived';
+export type ProjectStatus = 'deploying' | 'live' | 'failed' | 'stopped' | 'crashed' | 'paused' | 'archived' | 'suspended';
 export type DeploymentStatus = 'queued' | 'cloning' | 'building' | 'starting' | 'live' | 'failed';
 
 export interface User {
@@ -31,6 +31,9 @@ export interface Project {
   domains: CustomDomain[];
   webhook: { url: string; secret: string };
   status: ProjectStatus;
+  /** Set when an administrator suspended the app (owner cannot start or deploy it). */
+  suspendedAt: string | null;
+  suspendedReason: string | null;
   commit: string | null;
   currentDeploymentId: string | null;
   /** Deployment whose build is serving traffic. */
@@ -100,6 +103,8 @@ export interface Health {
   billing?: boolean;
   /** Platform name chosen in Admin → Settings. */
   siteName?: string;
+  /** Business details set in Admin → Settings (contact/legal pages, footer). */
+  business?: import('./site').BusinessDetails;
 }
 
 export type PlanId = 'free' | 'starter' | 'pro';
@@ -181,6 +186,8 @@ export interface AdminProject {
   kind: 'static' | 'node' | null;
   framework: string | null;
   status: ProjectStatus;
+  suspendedAt: string | null;
+  suspendedReason: string | null;
   runtime: 'docker' | 'process' | 'static' | null;
   port: number;
   commit: string | null;
@@ -238,6 +245,8 @@ export interface PlatformSettings {
   appUrlTemplate: string;
   appsDomain: string;
   appsDomainAuto: boolean;
+  /** Values the admin saved; empty fields fall back to NEXT_PUBLIC_LEGAL_* on the pages. */
+  business: import('./site').BusinessDetails;
   allowSignup: boolean;
   maxProjectsPerUser: number;
   billingEnabled: boolean;
@@ -250,11 +259,13 @@ export type SettingsPatch = Partial<Pick<PlatformSettings, 'allowSignup' | 'maxP
   resetPlan?: PlanId;
   /** null or "" = back to the default name. */
   siteName?: string | null;
+  /** Full set of business details; a missing or empty field is removed. */
+  business?: import('./site').BusinessDetails;
 };
 
 export interface AdminStats {
   users: { total: number; admins: number; suspended: number; newLast7d: number };
-  projects: { total: number; live: number; deploying: number; failed: number; stopped: number; crashed: number; paused: number; archived: number; static: number; node: number };
+  projects: { total: number; live: number; deploying: number; failed: number; stopped: number; crashed: number; paused: number; archived: number; suspended: number; static: number; node: number };
   deployments: { total: number; last24h: number; failed24h: number; auto24h: number; perDay: Array<{ date: string; total: number; failed: number }> };
   platform: {
     runner: 'docker' | 'process';

@@ -34,7 +34,7 @@ export class WebhookController {
     const wanted = `refs/heads/${project.branch ?? repo.default_branch ?? 'main'}`;
     if (payload.ref !== wanted) return { ok: true, ignored: `push to ${String(payload.ref)}, watching ${wanted}` };
     if (!project.autoDeploy) return { ok: true, ignored: 'auto-deploy is turned off' };
-    if (project.status === 'deploying' || project.status === 'stopped') return { ok: true, ignored: `project is ${project.status}` };
+    if (project.status === 'deploying' || project.status === 'stopped' || project.status === 'suspended') return { ok: true, ignored: `project is ${project.status}` };
 
     const deployment = await DeployService.deploy(project, 'auto');
     ctx.status = 202;

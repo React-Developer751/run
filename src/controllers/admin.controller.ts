@@ -12,8 +12,9 @@ import { DeployService, assertCanStart, assertCanStop } from '../services/deploy
 import { StorageMonitorService } from '../services/storage-monitor.service.js';
 import { DeployLog } from '../services/log.service.js';
 import { RunnerService } from '../services/runner.service.js';
-import { Store, DEFAULT_SITE_NAME, SITE_NAME_PATTERN, siteName, type Project, type User } from '../services/store.service.js';
+import { Store, BUSINESS_FIELDS, type BusinessDetails, DEFAULT_SITE_NAME, SITE_NAME_PATTERN, siteName, type Project, type User } from '../services/store.service.js';
 import { toPublicDeployment } from './deploy.controller.js';
+import { MailService } from '../services/mail.service.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const admin = (ctx: Ctx): User => AuthService.requireAdmin(ctx.user);
@@ -51,6 +52,8 @@ const projectRow = (p: Project) => {
     kind: p.kind,
     framework: p.framework,
     status: p.status,
+    suspendedAt: p.suspendedAt,
+    suspendedReason: p.suspendedReason,
     runtime: p.runtime,
     port: p.port,
     commit: p.commit,
@@ -125,6 +128,7 @@ export class AdminController {
         crashed: count('crashed'),
         paused: count('paused'),
         archived: count('archived'),
+        suspended: count('suspended'),
         static: projects.filter((p) => p.kind === 'static').length,
         node: projects.filter((p) => p.kind === 'node').length,
       },
@@ -276,6 +280,50 @@ export class AdminController {
     return { project: projectRow(p) };
   }
 
+  /** Render-style "suspend service": offline, owner locked out of start/deploy until an admin lifts it. */
+  static async suspendProject(ctx: Ctx) {
+    const actor = admin(ctx);
+    const p = projectOf(ctx);
+    if (p.suspendedAt) throw new HttpError(409, 'This app is already suspended');
+    const body = await ctx.json();
+    const reason = typeof body.reason === 'string' ? body.reason.replace(/[\u0000-\u001f\u007f]/g, ' ').trim() : '';
+    if (reason.length < 5 || reason.length > 300) throw new HttpError(400, 'Give a reason the owner will see (5-300 characters)');
+    const updated = await DeployService.suspend(p, reason);
+    await Store.addEvent(p.id, 'suspended', `Suspended by the administrators: ${reason}`);
+    await Store.addAudit(actor, 'project.suspend', p.slug, reason);
+    const owner = Store.getUserById(p.userId);
+    if (owner) {
+      void MailService.appAlert(
+        owner.email,
+        owner.name,
+        `${p.name} was suspended`,
+        `your app "${p.name}" was suspended by the ${siteName()} administrators and is offline. Reason: ${reason}. Your code, settings and data are kept. If you think this is a mistake, or once you have fixed the problem, open a Support request from your dashboard to have it reviewed.`,
+        `${config.dashboardUrl}/projects/${p.id}`,
+      );
+    }
+    return { project: projectRow(updated) };
+  }
+
+  static async unsuspendProject(ctx: Ctx) {
+    const actor = admin(ctx);
+    const p = projectOf(ctx);
+    if (!p.suspendedAt) throw new HttpError(409, 'This app is not suspended');
+    const updated = await DeployService.unsuspend(p);
+    await Store.addEvent(p.id, 'unsuspended', 'Suspension lifted by the administrators.');
+    await Store.addAudit(actor, 'project.unsuspend', p.slug, p.suspendedReason ?? '');
+    const owner = Store.getUserById(p.userId);
+    if (owner) {
+      void MailService.appAlert(
+        owner.email,
+        owner.name,
+        `${p.name} is no longer suspended`,
+        `the suspension of your app "${p.name}" was lifted. ${updated.status === 'live' ? 'It is running again.' : 'Start or redeploy it from your dashboard.'}`,
+        `${config.dashboardUrl}/projects/${p.id}`,
+      );
+    }
+    return { project: projectRow(updated) };
+  }
+
   static async redeploy(ctx: Ctx) {
     const actor = admin(ctx);
     const p = projectOf(ctx);
@@ -353,6 +401,10 @@ export class AdminController {
       }
       const next = name && name !== DEFAULT_SITE_NAME ? name : null;
       if (next !== (Store.settings().siteName ?? null)) patch.siteName = next;
+    }
+    if (body.business !== undefined) {
+      const next = validateBusiness(body.business);
+      if (JSON.stringify(next) !== JSON.stringify(Store.settings().business ?? {})) patch.business = next;
     }
     if (body.maxProjectsPerUser !== undefined) {
       const v = body.maxProjectsPerUser;
@@ -437,6 +489,7 @@ function effectiveSettings() {
   return {
     siteName: siteName(),
     defaultSiteName: DEFAULT_SITE_NAME,
+    business: s.business ?? {},
     // Where users' apps live (<slug>.<appsDomain>); set by HOSTX_BASE_DOMAIN or derived from the dashboard domain.
     appUrlTemplate: projectUrl('{name}'),
     appsDomain: config.baseDomain,
@@ -460,6 +513,31 @@ function effectiveSettings() {
       };
     }),
   };
+}
+
+const EMAIL_FIELDS = new Set(['email', 'abuseEmail', 'grievanceEmail']);
+const BUSINESS_LIMITS: Record<(typeof BUSINESS_FIELDS)[number], number> = {
+  company: 120, address: 300, email: 254, phone: 30, abuseEmail: 254, grievanceOfficer: 120, grievanceEmail: 254, jurisdiction: 120,
+};
+
+/** Business details from the admin form. Every field optional; "" removes it (the page then uses the env value). */
+function validateBusiness(raw: unknown): BusinessDetails {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, 'business must be an object');
+  const b = raw as Record<string, unknown>;
+  const out: BusinessDetails = {};
+  for (const field of BUSINESS_FIELDS) {
+    const v = b[field];
+    if (v === undefined || v === null) continue;
+    if (typeof v !== 'string') throw new HttpError(400, `${field} must be text`);
+    // One line, no control characters (these values end up in pages, mailto: links and emails).
+    const value = v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!value) continue;
+    if (value.length > BUSINESS_LIMITS[field]) throw new HttpError(400, `${field} is too long (max ${BUSINESS_LIMITS[field]} characters)`);
+    if (EMAIL_FIELDS.has(field) && !/^[^\s@<>"]+@[^\s@<>"]+\.[a-z]{2,}$/i.test(value)) throw new HttpError(400, `${field} must be a valid email address`);
+    if (field === 'phone' && !/^\+?[0-9][0-9 ()-]{5,28}$/.test(value)) throw new HttpError(400, 'phone may contain digits, spaces, + ( ) and - only');
+    out[field] = value;
+  }
+  return out;
 }
 
 const intIn = (v: unknown, min: number, max: number, field: string): number => {

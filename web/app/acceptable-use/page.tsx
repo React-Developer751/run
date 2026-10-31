@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, pageMetadata } from '@/lib/site';
-import { getSiteName } from '@/lib/brand';
+import { pageMetadata } from '@/lib/site';
+import { getLegal, getSiteName } from '@/lib/brand';
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteName = await getSiteName();
@@ -14,6 +14,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function AcceptableUsePage() {
+  const legal = await getLegal();
   const siteName = await getSiteName();
   return (
     <LegalPage title="Acceptable Use Policy">
@@ -40,7 +41,7 @@ export default async function AcceptableUsePage() {
 
       <h2>Report abuse</h2>
       <p>
-        Send the URL and details to <b>{LEGAL.abuseEmail}</b>. Lawful orders from government agencies and courts are handled through our
+        Send the URL and details to <b>{legal.abuseEmail}</b>. Lawful orders from government agencies and courts are handled through our
         Grievance Officer (see Contact). We act on valid reports as quickly as possible and within the time limits set by law.
       </p>
     </LegalPage>

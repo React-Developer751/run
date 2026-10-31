@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, pageMetadata } from '@/lib/site';
-import { getSiteName } from '@/lib/brand';
+import { pageMetadata } from '@/lib/site';
+import { getLegal, getSiteName } from '@/lib/brand';
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteName = await getSiteName();
@@ -15,6 +15,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function TermsPage() {
+  const legal = await getLegal();
   const siteName = await getSiteName();
   return (
     <LegalPage title="Terms of Service">
@@ -29,7 +30,7 @@ export default async function TermsPage() {
       <ul>
         <li>You must be at least 18 years old, or use the Service with the consent of a parent or guardian.</li>
         <li>Give accurate information and keep your password safe. You are responsible for all activity under your account.</li>
-        <li>Tell us promptly at {LEGAL.email} if you believe your account has been compromised.</li>
+        <li>Tell us promptly at {legal.email} if you believe your account has been compromised.</li>
       </ul>
 
       <h2>2. The Service</h2>
@@ -97,8 +98,8 @@ export default async function TermsPage() {
 
       <h2>10. Governing law and disputes</h2>
       <p>
-        These Terms are governed by the laws of India. Courts at {LEGAL.jurisdiction} have exclusive jurisdiction. Please contact us first at{' '}
-        {LEGAL.email}; most issues can be solved quickly.
+        These Terms are governed by the laws of India. Courts at {legal.jurisdiction} have exclusive jurisdiction. Please contact us first at{' '}
+        {legal.email}; most issues can be solved quickly.
       </p>
 
       <h2>11. Changes to these Terms</h2>
@@ -106,7 +107,7 @@ export default async function TermsPage() {
 
       <h2>12. Contact</h2>
       <p>
-        {LEGAL.company}, {LEGAL.address}. Email {LEGAL.email}. Grievances: see <Link href="/contact">Contact</Link>.
+        {legal.company}, {legal.address}. Email {legal.email}. Grievances: see <Link href="/contact">Contact</Link>.
       </p>
     </LegalPage>
   );

@@ -45,7 +45,7 @@ export class AutoDeployService {
     try {
       const heads = new Map<string, Promise<string | null>>();
       for (const project of [...Store.allProjects()]) {
-        if (!project.autoDeploy || project.status === 'deploying' || project.status === 'stopped') continue;
+        if (!project.autoDeploy || project.status === 'deploying' || project.status === 'stopped' || project.status === 'suspended') continue;
         const known = lastKnownCommit(project);
         if (!known) continue;
 

@@ -54,6 +54,8 @@ export const toPublicProject = (p: Project) => ({
   })),
   webhook: { url: `${config.apiPublicUrl}/api/webhooks/github/${p.id}`, secret: p.webhookSecret },
   status: p.status,
+  suspendedAt: p.suspendedAt,
+  suspendedReason: p.suspendedReason,
   commit: p.commit,
   currentDeploymentId: p.currentDeploymentId,
   liveDeploymentId: p.liveDeploymentId,
@@ -100,6 +102,8 @@ export class DeployController {
     return {
       status: 'ok',
       siteName: siteName(),
+      // Public business details (contact page, legal pages, footer) set by the admin.
+      business: Store.settings().business ?? {},
       runner: RunnerService.current().name,
       urlTemplate: projectUrl('{slug}'),
       // MongoDB Atlas "Network Access" needs the address apps connect from.

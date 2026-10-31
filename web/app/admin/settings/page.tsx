@@ -7,12 +7,26 @@ import { api } from '@/lib/api';
 import { useToast } from '@/lib/hooks';
 import { PlanEditor } from '@/components/PlanEditor';
 import type { PlatformSettings, SettingsPatch } from '@/lib/types';
+import type { BusinessDetails } from '@/lib/site';
+
+const BUSINESS_FORM: Array<{ key: keyof BusinessDetails; label: string; placeholder: string; max: number; type?: string; hint?: string; wide?: boolean }> = [
+  { key: 'company', label: 'Business name', placeholder: 'DeployKaro Technologies Pvt Ltd', max: 120 },
+  { key: 'phone', label: 'Phone', placeholder: '+91 98765 43210', max: 30, type: 'tel' },
+  { key: 'address', label: 'Registered address', placeholder: 'Street, City, State, PIN, India', max: 300, wide: true },
+  { key: 'email', label: 'Support & billing email', placeholder: 'support@yourdomain.com', max: 254, type: 'email' },
+  { key: 'abuseEmail', label: 'Abuse reports email', placeholder: 'Same as support if empty', max: 254, type: 'email' },
+  { key: 'grievanceOfficer', label: 'Grievance Officer (name)', placeholder: 'Full name', max: 120, hint: 'Required in India (IT Rules / DPDP).' },
+  { key: 'grievanceEmail', label: 'Grievance email', placeholder: 'Same as support if empty', max: 254, type: 'email' },
+  { key: 'jurisdiction', label: 'Courts / jurisdiction', placeholder: 'Jaipur, Rajasthan', max: 120 },
+];
+const clean = (b: BusinessDetails) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, (v ?? '').trim()]).filter(([, v]) => v));
 
 export default function AdminSettings() {
   const { toast, flash } = useToast();
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [limit, setLimit] = useState('');
   const [siteName, setSiteName] = useState('');
+  const [business, setBusiness] = useState<BusinessDetails>({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -23,6 +37,7 @@ export default function AdminSettings() {
         setSettings(r.settings);
         setLimit(String(r.settings.maxProjectsPerUser));
         setSiteName(r.settings.siteName);
+        setBusiness(r.settings.business ?? {});
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -35,9 +50,10 @@ export default function AdminSettings() {
       setSettings(r.settings);
       setLimit(String(r.settings.maxProjectsPerUser));
       setSiteName(r.settings.siteName);
-      if (patch.siteName !== undefined) {
-        // This tab, every component reading the name, and the server-rendered pages (landing, legal, titles).
-        window.dispatchEvent(new CustomEvent(SITE_NAME_EVENT, { detail: r.settings.siteName }));
+      setBusiness(r.settings.business ?? {});
+      if (patch.siteName !== undefined || patch.business !== undefined) {
+        // This tab, every component reading them, and the server-rendered pages (landing, legal, contact, titles).
+        window.dispatchEvent(new CustomEvent(SITE_NAME_EVENT, { detail: { siteName: r.settings.siteName, business: r.settings.business ?? {} } }));
         await refreshSiteName().catch(() => undefined);
       }
       flash(done);
@@ -95,6 +111,44 @@ export default function AdminSettings() {
         </form>
         <span className="hint">2–40 characters: letters, numbers, spaces and . &amp; &apos; ! + _ -</span>
       </div>
+
+      <form
+        className="card stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save({ business }, 'Business details saved');
+        }}
+      >
+        <div>
+          <h3 className="card-title">Business details</h3>
+          <p className="muted" style={{ marginTop: 6, fontSize: 14 }}>
+            Shown on the Contact page, Terms, Privacy, Refund, Delivery and Acceptable Use pages, and in the footer. Razorpay and Indian law need
+            real ones. Empty fields use the server&apos;s <span className="mono">NEXT_PUBLIC_LEGAL_*</span> values, or show a visible [placeholder].
+          </p>
+        </div>
+        <div className="grid-form">
+          {BUSINESS_FORM.map((f) => (
+            <div className="field" key={f.key} style={f.wide ? { gridColumn: '1 / -1' } : undefined}>
+              <label className="label" htmlFor={`biz-${f.key}`}>{f.label}</label>
+              <input
+                id={`biz-${f.key}`}
+                className="input"
+                type={f.type ?? 'text'}
+                inputMode={f.type === 'tel' ? 'tel' : undefined}
+                maxLength={f.max}
+                placeholder={f.placeholder}
+                value={business[f.key] ?? ''}
+                onChange={(e) => setBusiness({ ...business, [f.key]: e.target.value })}
+              />
+              {f.hint && <span className="hint">{f.hint}</span>}
+            </div>
+          ))}
+        </div>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" disabled={busy || JSON.stringify(clean(business)) === JSON.stringify(clean(settings.business ?? {}))}>Save business details</button>
+          <a className="btn" href="/contact" target="_blank" rel="noreferrer">View Contact page</a>
+        </div>
+      </form>
 
       <div className="card stack">
         <div>

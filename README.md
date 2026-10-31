@@ -121,6 +121,8 @@ Admin ko navbar mein **Admin** link dikhta hai:
 | Settings | **website ka naam**, signups on/off, plans & limits, default project limit (restart ke bina) |
 | Audit log | kisne kya kiya (user/project/settings changes) |
 
+**Business details (Admin → Settings → Business details):** business name, address, phone, support email, abuse email, Grievance Officer aur jurisdiction admin dashboard se likhta hai. Ye Contact, Terms, Privacy, Refund, Delivery, Acceptable Use pages aur footer par dikhte hain (save karte hi). Khaali field ke liye `web/.env.local` ke `NEXT_PUBLIC_LEGAL_*` values, warna page par saaf `[placeholder]` dikhta hai. Abuse/grievance email khaali ho to support email use hota hai.
+
 **Website ka naam (Admin → Settings → Website name):** admin kabhi bhi naam badal sakta hai (2-40 characters; khaali/Reset = `HostX`). Naya naam logo, landing page, page titles, legal pages, footer, share image, app manifest, emails, build logs (`[naam]`) aur paused/archived app pages par dikhta hai. Save karte hi khuli hui pages aur server pages turant update hote hain; baaki jagah max 1 minute (cache). Dashboard server engine se naam leta hai; dono alag machine par hon to `HOSTX_INTERNAL_API_URL` set karo.
 
 Safeguards: apne aap ko demote/suspend/delete nahi kar sakte, kam se kam ek active admin hamesha rehta hai, admin list mein env values/secrets nahi dikhte, aur har admin action audit log mein jata hai.

@@ -1,28 +1,42 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { api } from '@/lib/api';
-import { DEFAULT_SITE_NAME } from '@/lib/site';
+import { DEFAULT_SITE_NAME, legalFrom, type BusinessDetails, type Legal } from '@/lib/site';
 
-const SiteNameContext = createContext<string>(DEFAULT_SITE_NAME);
-/** Fired by Admin → Settings with the new name, so the open page updates without a reload. */
+interface Brand {
+  name: string;
+  legal: Legal;
+}
+
+const BrandContext = createContext<Brand>({ name: DEFAULT_SITE_NAME, legal: legalFrom() });
+/** Fired by Admin → Settings with { siteName?, business? }, so the open page updates without a reload. */
 export const SITE_NAME_EVENT = 'hostx:site-name';
 
 /**
- * Gives client components the platform name. Starts with the name the server rendered the page with, then checks
- * the engine once (the server copy may be up to a minute old) and follows renames from Admin → Settings.
+ * Gives client components the platform name and business details. Starts with what the server rendered the page
+ * with, then checks the engine once (the server copy may be up to a minute old) and follows saves in Admin → Settings.
  */
-export function BrandProvider({ initial, children }: { initial: string; children: ReactNode }) {
+export function BrandProvider({ initial, business: initialBusiness, children }: { initial: string; business: BusinessDetails; children: ReactNode }) {
   const [name, setName] = useState(initial);
+  const [business, setBusiness] = useState<BusinessDetails>(initialBusiness);
 
   useEffect(() => {
-    api.health().then((h) => h.siteName && setName(h.siteName)).catch(() => undefined);
-    const onRename = (e: Event) => {
-      const next = (e as CustomEvent<string>).detail;
-      if (next) setName(next);
+    api
+      .health()
+      .then((h) => {
+        if (h.siteName) setName(h.siteName);
+        if (h.business) setBusiness(h.business);
+      })
+      .catch(() => undefined);
+    const onSave = (e: Event) => {
+      const detail = (e as CustomEvent<{ siteName?: string; business?: BusinessDetails } | string>).detail;
+      if (typeof detail === 'string') return detail && setName(detail);
+      if (detail?.siteName) setName(detail.siteName);
+      if (detail?.business) setBusiness(detail.business);
     };
-    window.addEventListener(SITE_NAME_EVENT, onRename);
-    return () => window.removeEventListener(SITE_NAME_EVENT, onRename);
+    window.addEventListener(SITE_NAME_EVENT, onSave);
+    return () => window.removeEventListener(SITE_NAME_EVENT, onSave);
   }, []);
 
   // Pages that set document.title themselves read it on their own; here keep the "… · Name" suffix in step.
@@ -30,7 +44,10 @@ export function BrandProvider({ initial, children }: { initial: string; children
     if (name !== initial && document.title.includes(initial)) document.title = document.title.split(initial).join(name);
   }, [name, initial]);
 
-  return <SiteNameContext.Provider value={name}>{children}</SiteNameContext.Provider>;
+  const value = useMemo(() => ({ name, legal: legalFrom(business) }), [name, business]);
+  return <BrandContext.Provider value={value}>{children}</BrandContext.Provider>;
 }
 
-export const useSiteName = () => useContext(SiteNameContext);
+export const useSiteName = () => useContext(BrandContext).name;
+/** Company, address, contacts: admin values, else build-time env values, else [placeholders]. */
+export const useLegal = () => useContext(BrandContext).legal;

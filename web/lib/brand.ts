@@ -1,46 +1,73 @@
 // Server-side only (uses Next's fetch cache).
-import { DEFAULT_SITE_NAME } from './site';
+import { DEFAULT_SITE_NAME, legalFrom, type BusinessDetails } from './site';
 
 /** Engine address for server-side fetches (same machine in production; the public URL works too). */
 const API = process.env.HOSTX_INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+/** Cache tag of everything the admin can change in Admin → Settings that public pages show (name, business details). */
 export const SITE_NAME_TAG = 'site-name';
 
+interface PublicInfo {
+  siteName: string;
+  urlTemplate: string;
+  business: BusinessDetails;
+}
+
+const FALLBACK: PublicInfo = { siteName: DEFAULT_SITE_NAME, urlTemplate: 'http://{slug}.localhost:8080', business: {} };
+
+function parse(raw: { siteName?: string; urlTemplate?: string; business?: BusinessDetails }): PublicInfo {
+  return {
+    siteName: raw.siteName?.trim() || DEFAULT_SITE_NAME,
+    urlTemplate: raw.urlTemplate?.includes('{slug}') ? raw.urlTemplate : FALLBACK.urlTemplate,
+    business: raw.business && typeof raw.business === 'object' ? raw.business : {},
+  };
+}
+
 /**
- * The platform name chosen in Admin → Settings, for server-rendered pages (titles, landing, legal pages).
- * Cached for 60 s and dropped immediately when the admin saves a new name (see app/actions.ts).
- * If the engine cannot be reached (e.g. during `next build`) the default is used and refreshed later.
+ * Settings the admin controls that server-rendered pages show. Cached for 60 s and dropped immediately when the admin
+ * saves (see app/actions.ts). If the engine cannot be reached (e.g. during `next build`) defaults are used.
  */
+async function publicInfo(): Promise<PublicInfo> {
+  try {
+    const r = await fetch(`${API}/api/health`, { next: { revalidate: 60, tags: [SITE_NAME_TAG] } });
+    return r.ok ? parse(await r.json()) : FALLBACK;
+  } catch {
+    return FALLBACK;
+  }
+}
+
+/** The platform name chosen in Admin → Settings (titles, landing, legal pages). */
 export async function getSiteName(): Promise<string> {
-  try {
-    const r = await fetch(`${API}/api/health`, { next: { revalidate: 60, tags: [SITE_NAME_TAG] } });
-    if (!r.ok) return DEFAULT_SITE_NAME;
-    const name = ((await r.json()) as { siteName?: string }).siteName;
-    return name && name.trim() ? name : DEFAULT_SITE_NAME;
-  } catch {
-    return DEFAULT_SITE_NAME;
-  }
+  return (await publicInfo()).siteName;
 }
 
-/**
- * How app URLs look on this server, e.g. "https://{slug}.apps.deploykaro.com" (Render: {slug}.onrender.com).
- * Same cache as the name. Falls back to the local development pattern.
- */
+/** How app URLs look on this server, e.g. "https://{slug}.apps.deploykaro.com" (Render: {slug}.onrender.com). */
 export async function getAppUrlTemplate(): Promise<string> {
-  try {
-    const r = await fetch(`${API}/api/health`, { next: { revalidate: 60, tags: [SITE_NAME_TAG] } });
-    const t = r.ok ? ((await r.json()) as { urlTemplate?: string }).urlTemplate : undefined;
-    return t && t.includes('{slug}') ? t : 'http://{slug}.localhost:8080';
-  } catch {
-    return 'http://{slug}.localhost:8080';
-  }
+  return (await publicInfo()).urlTemplate;
 }
 
-/** The current name straight from the engine, bypassing the cache. */
-export async function freshSiteName(): Promise<string | null> {
+/** Raw business details the admin saved (missing fields = not set by the admin). */
+export async function getBusiness(): Promise<BusinessDetails> {
+  return (await publicInfo()).business;
+}
+
+/** Company, address, contacts for legal/contact pages: admin value, else env value, else a visible [placeholder]. */
+export async function getLegal() {
+  return legalFrom(await getBusiness());
+}
+
+/** Fingerprint of the current values straight from the engine, bypassing the cache. */
+export async function freshPublicInfo(): Promise<string | null> {
   try {
     const r = await fetch(`${API}/api/health`, { cache: 'no-store' });
-    return r.ok ? (((await r.json()) as { siteName?: string }).siteName ?? null) : null;
+    if (!r.ok) return null;
+    const { siteName, business } = parse(await r.json());
+    return JSON.stringify({ siteName, business });
   } catch {
     return null;
   }
+}
+
+export async function cachedPublicInfo(): Promise<string> {
+  const { siteName, business } = await publicInfo();
+  return JSON.stringify({ siteName, business });
 }

@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { LegalPage } from '@/components/LegalPage';
-import { LEGAL, pageMetadata } from '@/lib/site';
-import { getSiteName } from '@/lib/brand';
+import { pageMetadata } from '@/lib/site';
+import { getLegal, getSiteName } from '@/lib/brand';
 
 export async function generateMetadata(): Promise<Metadata> {
   const siteName = await getSiteName();
@@ -15,11 +15,12 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function PrivacyPage() {
+  const legal = await getLegal();
   const siteName = await getSiteName();
   return (
     <LegalPage title="Privacy Policy">
       <p>
-        This policy explains how {LEGAL.company} (&quot;we&quot;) processes your personal data when you use {siteName}, in line with the
+        This policy explains how {legal.company} (&quot;we&quot;) processes your personal data when you use {siteName}, in line with the
         Digital Personal Data Protection Act, 2023 and the Information Technology Act, 2000 and its rules. We collect only what we need to run
         the Service and we do not sell personal data.
       </p>
@@ -70,7 +71,7 @@ export default async function PrivacyPage() {
       <h2>6. Your rights</h2>
       <p>You can:</p>
       <ul>
-        <li>access and correct your data, and get a summary of the data we process about you, by writing to {LEGAL.email};</li>
+        <li>access and correct your data, and get a summary of the data we process about you, by writing to {legal.email};</li>
         <li>delete your account and all its data yourself on the Account page, or ask us to;</li>
         <li>withdraw consent (by deleting your account) and nominate another person to exercise your rights in case of death or incapacity;</li>
         <li>raise a grievance with our Grievance Officer (below), and if unresolved, with the Data Protection Board of India.</li>
@@ -92,7 +93,7 @@ export default async function PrivacyPage() {
 
       <h2>9. Grievance Officer</h2>
       <p>
-        {LEGAL.grievanceOfficer}, {LEGAL.company}, {LEGAL.address}. Email: {LEGAL.grievanceEmail}. We acknowledge complaints within 24 hours and
+        {legal.grievanceOfficer}, {legal.company}, {legal.address}. Email: {legal.grievanceEmail}. We acknowledge complaints within 24 hours and
         resolve them within 15 days.
       </p>
 

@@ -2,7 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { BrandProvider } from '@/components/BrandProvider';
 import { AuthProvider } from '@/lib/auth';
-import { getSiteName } from '@/lib/brand';
+import { getBusiness, getSiteName } from '@/lib/brand';
 import { SITE_DESCRIPTION, SITE_URL, siteTitle } from '@/lib/site';
 import './globals.css';
 
@@ -34,14 +34,14 @@ export const viewport: Viewport = {
 const THEME_SCRIPT = `try{if(/(?:^|; )hostx_theme=dark/.test(document.cookie))document.documentElement.dataset.theme='dark'}catch(e){}`;
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const name = await getSiteName();
+  const [name, business] = await Promise.all([getSiteName(), getBusiness()]);
   return (
     <html lang="en" data-scroll-behavior="smooth" data-theme="light" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
       <body>
-        <BrandProvider initial={name}>
+        <BrandProvider initial={name} business={business}>
           <AuthProvider>{children}</AuthProvider>
         </BrandProvider>
       </body>

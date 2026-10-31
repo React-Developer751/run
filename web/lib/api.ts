@@ -130,6 +130,8 @@ export const api = {
     stopProject: (id: string) => request<unknown>(`/api/admin/projects/${id}/stop`, 'POST', {}),
     startProject: (id: string) => request<unknown>(`/api/admin/projects/${id}/start`, 'POST', {}),
     redeployProject: (id: string) => request<unknown>(`/api/admin/projects/${id}/deploy`, 'POST', {}),
+    suspendProject: (id: string, reason: string) => request<{ project: AdminProject }>(`/api/admin/projects/${id}/suspend`, 'POST', { reason }),
+    unsuspendProject: (id: string) => request<{ project: AdminProject }>(`/api/admin/projects/${id}/unsuspend`, 'POST', {}),
     deleteProject: (id: string) => request<{ ok: true }>(`/api/admin/projects/${id}`, 'DELETE'),
     deploymentLogs: (id: string, did: string, after: number) =>
       request<{ lines: string[]; next: number; status: Deployment['status']; error: string | null }>(

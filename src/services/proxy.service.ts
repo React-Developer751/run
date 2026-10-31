@@ -132,7 +132,9 @@ export class ProxyService {
                 ? 'This app crashed. Its owner has been notified.'
                 : project.status === 'paused'
                   ? `This app is paused because it had no visitors for a while. Its owner can resume it from the ${siteName()} dashboard in one click.`
-                  : project.status === 'archived'
+                  : project.status === 'suspended'
+                    ? `This app has been suspended by the ${siteName()} team.`
+                    : project.status === 'archived'
                     ? `This app was archived after a long time without visitors. Its owner can redeploy it from the ${siteName()} dashboard.`
                     : 'The last deployment of this app failed.';
         return statusPage(res, 503, 'App unavailable', msg);

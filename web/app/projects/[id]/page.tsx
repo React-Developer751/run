@@ -153,6 +153,7 @@ export default function ProjectPage() {
   }, [project]);
 
   const deploying = project ? isBusy(project.status) : false;
+  const suspended = project?.status === 'suspended';
 
   useEffect(() => {
     if (project) document.title = `${project.name} · ${siteName}`;
@@ -240,10 +241,12 @@ export default function ProjectPage() {
             <button className="btn" onClick={() => { void navigator.clipboard?.writeText(project.url); flash('URL copied'); }}>
               <Icon name="copy" /> Copy URL
             </button>
-            <button className="btn" onClick={redeploy} disabled={deploying || busy !== ''}>
-              {busy === 'deploy' ? <span className="spinner" /> : <Icon name="refresh" />} Redeploy
-            </button>
-            {project.status === 'stopped' || project.status === 'crashed' || project.status === 'paused' ? (
+            {!suspended && (
+              <button className="btn" onClick={redeploy} disabled={deploying || busy !== ''}>
+                {busy === 'deploy' ? <span className="spinner" /> : <Icon name="refresh" />} Redeploy
+              </button>
+            )}
+            {suspended ? null : project.status === 'stopped' || project.status === 'crashed' || project.status === 'paused' ? (
               <button className="btn" disabled={busy !== ''} onClick={() => act('start', () => api.start(id), project.status === 'paused' ? 'App resumed' : 'App started')}>
                 {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} {project.status === 'crashed' ? 'Restart' : project.status === 'paused' ? 'Resume' : 'Start'}
               </button>
@@ -257,6 +260,17 @@ export default function ProjectPage() {
 
         {error && <div className="error-box" style={{ marginBottom: 20 }}>{error}</div>}
         {project.status === 'live' && project.liveDeploymentId && <FeedbackPrompt projectId={project.id} projectName={project.name} />}
+
+        {suspended && (
+          <div className="error-box" role="alert" style={{ marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <span>
+              <b>This app was suspended by the {siteName} team</b>
+              {project.suspendedReason ? <>: {project.suspendedReason}</> : '.'} It is offline and cannot be started, redeployed or rolled back.
+              Your code, settings and environment variables are kept. Fixed the problem, or think this is a mistake?
+            </span>
+            <a className="btn btn-sm" href={`/support?new=1`}>Contact support</a>
+          </div>
+        )}
 
         {project.status === 'paused' && (
           <div className="notice-box" style={{ marginBottom: 20, display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
@@ -332,7 +346,7 @@ export default function ProjectPage() {
                 {selectedDeployment.canRollback && (
                   <div className="notice-box" style={{ display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
                     <span>This version can be put back live in seconds, without rebuilding.</span>
-                    <button className="btn btn-sm" disabled={deploying || busy !== ''} onClick={() => rollback(selectedDeployment)}>
+                    <button className="btn btn-sm" disabled={deploying || suspended || busy !== ''} onClick={() => rollback(selectedDeployment)}>
                       {busy === 'rollback' ? <span className="spinner" /> : '↩'} Roll back to this version
                     </button>
                   </div>
@@ -486,7 +500,7 @@ export default function ProjectPage() {
                 <input
                   type="checkbox"
                   checked={project.autoDeploy}
-                  disabled={busy !== '' || deploying}
+                  disabled={busy !== '' || deploying || suspended}
                   onChange={(e) => act('auto', () => api.updateProject(id, { autoDeploy: e.target.checked }), e.target.checked ? 'Auto-deploy on' : 'Auto-deploy off')}
                 />
                 <span>

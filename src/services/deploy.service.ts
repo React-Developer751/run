@@ -47,8 +47,15 @@ export function assertCanStop(project: Project): void {
   }
 }
 
-/** Suspended accounts get nothing (re)started: not by the owner, an admin, a push or the crash monitor. */
+/**
+ * Suspended accounts and suspended projects get nothing (re)started: not by the owner, an admin, a push, a rollback
+ * or the crash monitor. Reads the stored project, so a stale copy cannot slip past a suspension.
+ */
 function assertOwnerActive(project: Project): void {
+  const current = Store.getProject(project.id) ?? project;
+  if (current.suspendedAt) {
+    throw new HttpError(403, `This app was suspended by the administrators${current.suspendedReason ? `: ${current.suspendedReason}` : ''}. Contact support to have it reviewed.`);
+  }
   if (Store.getUserById(project.userId)?.suspended) throw new HttpError(403, 'This account is suspended, so its apps cannot be started or deployed.');
 }
 const sourceDir = (p: Project) => path.join(projectDir(p), 'src');
@@ -167,6 +174,8 @@ export class DeployService {
       pausedAt: null,
       archiveWarnedAt: null,
       archivedAt: null,
+      suspendedAt: null,
+      suspendedReason: null,
       currentDeploymentId: null,
       commit: null,
       createdAt: now,
@@ -207,6 +216,7 @@ export class DeployService {
    * of minutes) next to the current version and switches traffic when it is healthy. Uses the current env vars.
    */
   static async rollback(project: Project, targetId: string): Promise<Deployment> {
+    assertOwnerActive(project);
     const runner = RunnerService.for(project);
     if (project.runtime !== 'docker' || !runner.startImage) throw new HttpError(409, 'Rollback is available for apps running in Docker');
     const target = Store.getDeployment(targetId);
@@ -274,8 +284,10 @@ export class DeployService {
     const project = Store.getProject(projectId);
     if (!project) return;
     const stillServing = project.runtime !== null && (await RunnerService.for(project).isAlive(project).catch(() => false));
-    // A failed restore of an archived app stays "archived" (with its banner and Restore button), not "failed".
-    await Store.updateProject(projectId, { status: stillServing ? 'live' : project.archivedAt ? 'archived' : 'failed' }).catch(() => undefined);
+    // A failed restore of an archived app stays "archived"; a suspended app stays suspended whatever happened.
+    if (!project.suspendedAt) {
+      await Store.updateProject(projectId, { status: stillServing ? 'live' : project.archivedAt ? 'archived' : 'failed' }).catch(() => undefined);
+    }
 
     // Every failure reaches the admins (in-app); emails are limited to one per project per hour.
     const owner = Store.getUserById(project.userId);
@@ -322,6 +334,31 @@ export class DeployService {
       // Never show server paths to users.
       throw new HttpError(500, `Could not start the app: ${redactPaths((err as Error).message)}. Try Redeploy.`);
     }
+  }
+
+  /**
+   * Admin action against abuse or policy breaches (Render's "suspend service"): the app goes offline at once,
+   * visitors see a "suspended" page, and the owner cannot start, redeploy or roll it back until an admin lifts it.
+   * Nothing is deleted. A deployment that is still building is not put online.
+   */
+  static async suspend(project: Project, reason: string): Promise<Project> {
+    // Status first, so the proxy, crash monitor and auto-deploy treat it as suspended while the app stops.
+    await Store.updateProject(project.id, { status: 'suspended', suspendedAt: new Date().toISOString(), suspendedReason: reason });
+    if (project.runtime !== null) {
+      await RunnerService.for(project).stop(project).catch((err) => logger.warn(`Stopping suspended ${project.slug} failed`, err));
+    }
+    return Store.updateProject(project.id, { pid: null });
+  }
+
+  /** Lifts a suspension. An app that had been deployed is started again; otherwise it waits for a deploy. */
+  static async unsuspend(project: Project): Promise<Project> {
+    // Never deployed (or archived meanwhile): back to that state; otherwise stopped, then started below.
+    const idle = project.archivedAt ? 'archived' : 'failed';
+    const cleared = await Store.updateProject(project.id, { status: project.runtime === null ? idle : 'stopped', suspendedAt: null, suspendedReason: null });
+    if (cleared.runtime !== null && !Store.getUserById(cleared.userId)?.suspended) {
+      await this.start(cleared).catch((err) => logger.warn(`Restart of ${cleared.slug} after unsuspend failed`, err));
+    }
+    return Store.getProject(project.id) ?? cleared;
   }
 
   /**
@@ -477,11 +514,18 @@ export class DeployService {
       });
 
       const { image, ...runtime } = patch;
-      // The owner was suspended while this was building: do not put it online.
-      if (Store.getUserById(project.userId)?.suspended) {
-        await Store.updateProject(projectId, { ...runtime, status: 'live' });
-        await this.stop(Store.getProject(projectId) as Project);
-        throw new Error('The account was suspended during the deployment, so the app was not started.');
+      // The owner or this app was suspended while it was building: do not put it online.
+      const latest = Store.getProject(projectId);
+      if (latest?.suspendedAt || Store.getUserById(project.userId)?.suspended) {
+        if (latest?.suspendedAt) {
+          await Store.updateProject(projectId, { ...runtime });
+          await RunnerService.for(Store.getProject(projectId) as Project).stop(Store.getProject(projectId) as Project).catch(() => undefined);
+          await Store.updateProject(projectId, { pid: null, status: 'suspended' });
+        } else {
+          await Store.updateProject(projectId, { ...runtime, status: 'live' });
+          await this.stop(Store.getProject(projectId) as Project);
+        }
+        throw new Error(`The ${latest?.suspendedAt ? 'app' : 'account'} was suspended during the deployment, so the app was not started.`);
       }
       await Store.updateProject(projectId, {
         ...runtime,

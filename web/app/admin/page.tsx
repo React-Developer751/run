@@ -38,7 +38,7 @@ export default function AdminOverview() {
 
       <div className="kpis">
         <div className="card stat"><span>Users</span><b>{users.total}</b><small>{users.admins} admin · {users.suspended} suspended · +{users.newLast7d} this week</small></div>
-        <div className="card stat"><span>Projects</span><b>{projects.total}</b><small><em className="ok">{projects.live} live</em> · {projects.deploying} building · <em className="bad">{projects.failed + projects.crashed} failed/crashed</em> · {projects.stopped} stopped · {projects.paused} paused · {projects.archived} archived</small></div>
+        <div className="card stat"><span>Projects</span><b>{projects.total}</b><small><em className="ok">{projects.live} live</em> · {projects.deploying} building · <em className="bad">{projects.failed + projects.crashed} failed/crashed</em> · {projects.stopped} stopped · {projects.paused} paused · {projects.archived} archived{projects.suspended ? <> · <em className="bad">{projects.suspended} suspended</em></> : null}</small></div>
         <div className="card stat"><span>Deployments (24h)</span><b>{deployments.last24h}</b><small>{deployments.auto24h} auto-deploys · {deployments.total} all time</small></div>
         <div className="card stat"><span>Failure rate (24h)</span><b style={{ color: failRate > 25 ? 'var(--bad)' : undefined }}>{failRate}%</b><small>{deployments.failed24h} failed of {deployments.last24h}</small></div>
       </div>
