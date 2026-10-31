@@ -13,6 +13,8 @@ export function registerAdminRoutes(router: Router): void {
   router.post('/api/admin/projects/:id/stop', AdminController.stop);
   router.post('/api/admin/projects/:id/start', AdminController.start);
   router.post('/api/admin/projects/:id/deploy', AdminController.redeploy);
+  router.post('/api/admin/projects/:id/suspend', AdminController.suspendProject);
+  router.post('/api/admin/projects/:id/unsuspend', AdminController.unsuspendProject);
   router.delete('/api/admin/projects/:id', AdminController.remove);
   router.get('/api/admin/projects/:id/deployments/:did/logs', AdminController.deploymentLogs);
   router.get('/api/admin/projects/:id/logs', AdminController.runtimeLogs);
@@ -21,4 +23,8 @@ export function registerAdminRoutes(router: Router): void {
   router.get('/api/admin/settings', AdminController.getSettings);
   router.patch('/api/admin/settings', AdminController.updateSettings);
   router.get('/api/admin/audit', AdminController.audit);
+  router.get('/api/admin/notifications', AdminController.notifications);
+  router.post('/api/admin/notifications/read', AdminController.readNotifications);
+  router.get('/api/admin/storage', AdminController.storage);
+  router.post('/api/admin/storage/check', AdminController.checkStorage);
 }

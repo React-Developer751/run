@@ -32,7 +32,8 @@ export function parseEnv(text: string): { rows: EnvRow[]; skipped: number } {
     const quote = value[0];
     if ((quote === '"' || quote === "'") && value.length >= 2 && value.endsWith(quote)) {
       value = value.slice(1, -1);
-      if (quote === '"') value = value.replace(/\\n/g, ' ').replace(/\\"/g, '"');
+      // Values must stay on one line, so an escaped \n is kept as-is (e.g. PEM keys: key.replace(/\\n/g, '\n') in code).
+      if (quote === '"') value = value.replace(/\\"/g, '"');
     } else {
       value = value.replace(/\s+#.*$/, ''); // inline comment on unquoted values
     }

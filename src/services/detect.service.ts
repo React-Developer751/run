@@ -6,6 +6,7 @@ interface PackageJson {
   name?: string;
   main?: string;
   scripts?: Record<string, string>;
+  engines?: { node?: string };
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
 }
@@ -23,7 +24,36 @@ export interface Detection {
   packageName: string | null;
   /** false for plain folders without a package.json (e.g. hand-written HTML). */
   hasPackage: boolean;
+  /** Node.js major version for the Docker image, from package.json "engines.node". */
+  nodeVersion: string;
+  /** Picked from the lockfile in the folder. */
+  packageManager: PackageManager;
 }
+
+export type PackageManager = 'npm' | 'yarn' | 'pnpm';
+
+// Node.js majors we build with. 22 is the default (Active LTS); 20 reached end-of-life in April 2026.
+const NODE_MAJORS = [18, 20, 22, 24];
+const DEFAULT_NODE = 22;
+
+/** "^20", "20.x", "20.11.1" -> 20; ">=18" -> the default (22) because any newer version satisfies it. */
+export function nodeMajorFor(spec: string | undefined): string {
+  const major = Number(/(\d+)/.exec(spec ?? '')?.[1]);
+  if (!spec || !Number.isFinite(major)) return String(DEFAULT_NODE);
+  if (spec.trim().startsWith('>')) return String(Math.max(DEFAULT_NODE, ...NODE_MAJORS.filter((m) => m <= major)));
+  if (NODE_MAJORS.includes(major)) return String(major);
+  return String(NODE_MAJORS.find((m) => m >= major) ?? NODE_MAJORS[NODE_MAJORS.length - 1]);
+}
+
+/** Shell command that installs dependencies with the package manager the repo actually uses. */
+export function installCommand(pm: PackageManager): string {
+  // `corepack yarn` (not `corepack enable`) works without root: the build sandbox runs as an unprivileged user.
+  if (pm === 'yarn') return 'corepack yarn install';
+  if (pm === 'pnpm') return 'corepack pnpm install';
+  return 'npm install --no-audit --no-fund';
+}
+
+const exists = (file: string) => fs.access(file).then(() => true, () => false);
 
 const SERVER_LIBS: Record<string, string> = {
   express: 'Express',
@@ -39,7 +69,12 @@ export class DetectService {
   static async fromDir(dir: string): Promise<Detection | null> {
     try {
       const pkg = JSON.parse(await fs.readFile(path.join(dir, 'package.json'), 'utf8')) as PackageJson;
-      return this.fromPackage(pkg);
+      const packageManager: PackageManager = (await exists(path.join(dir, 'pnpm-lock.yaml')))
+        ? 'pnpm'
+        : (await exists(path.join(dir, 'yarn.lock'))) && !(await exists(path.join(dir, 'package-lock.json')))
+          ? 'yarn'
+          : 'npm';
+      return { ...this.fromPackage(pkg), packageManager };
     } catch {
       return null;
     }
@@ -47,8 +82,7 @@ export class DetectService {
 
   /** A folder with an index.html but no package.json is deployed as-is. */
   static async plainStatic(dir: string): Promise<Detection | null> {
-    const exists = await fs.access(path.join(dir, 'index.html')).then(() => true, () => false);
-    if (!exists) return null;
+    if (!(await exists(path.join(dir, 'index.html')))) return null;
     return {
       kind: 'static',
       framework: 'Static HTML',
@@ -57,6 +91,8 @@ export class DetectService {
       startCommand: '',
       packageName: null,
       hasPackage: false,
+      nodeVersion: String(DEFAULT_NODE),
+      packageManager: 'npm',
     };
   }
 
@@ -72,6 +108,8 @@ export class DetectService {
       startCommand: hasStart ? 'npm start' : `node ${pkg.main ?? 'index.js'}`,
       packageName: pkg.name ?? null,
       hasPackage: true,
+      nodeVersion: nodeMajorFor(pkg.engines?.node),
+      packageManager: 'npm' as PackageManager,
     };
 
     if (has('next')) return { ...base, kind: 'node', framework: 'Next.js', outputDir: '.next', startCommand: 'npm start' };

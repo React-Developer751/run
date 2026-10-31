@@ -18,10 +18,13 @@ export function BuildSettings({
   value,
   onChange,
   folders,
+  hideKind = false,
 }: {
   value: BuildConfig;
   onChange: (next: BuildConfig) => void;
   folders?: ScanFolder[] | null;
+  /** The New deploy wizard picks the type up front, so it hides the switch here. */
+  hideKind?: boolean;
 }) {
   const set = (patch: Partial<BuildConfig>) => onChange({ ...value, ...patch });
   const pickFolder = (path: string) => {
@@ -47,7 +50,7 @@ export function BuildSettings({
         </span>
       </div>
 
-      <div className="field">
+      {!hideKind && <div className="field">
         <span className="label">Type</span>
         <div className="seg" role="radiogroup" aria-label="Project type">
           {(['node', 'static'] as const).map((k) => (
@@ -63,7 +66,7 @@ export function BuildSettings({
             </button>
           ))}
         </div>
-      </div>
+      </div>}
 
       <div className="field">
         <label className="label" htmlFor="build-cmd">Build command</label>

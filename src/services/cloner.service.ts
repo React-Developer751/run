@@ -5,6 +5,7 @@ import { config } from '../config/index.js';
 import { run } from '../utils/exec.js';
 import { DetectService } from './detect.service.js';
 import type { ProjectKind } from './store.service.js';
+import { siteSlug } from './brand.js';
 
 export interface ScanFolder {
   path: string;
@@ -22,7 +23,8 @@ const MAX_FOLDERS = 40;
 
 export class ClonerService {
   /** Shallow clone: only the latest commit of one branch, so large histories never slow a deploy down. */
-  static async clone(repoUrl: string, branch: string | null, dest: string, onLine?: (line: string) => void): Promise<void> {
+  /** `env` carries GitHub App credentials for private repositories (see GitHubService.gitEnv). */
+  static async clone(repoUrl: string, branch: string | null, dest: string, onLine?: (line: string) => void, env?: NodeJS.ProcessEnv): Promise<void> {
     const args = [
       '-c', 'core.symlinks=false',
       '-c', 'protocol.file.allow=never',
@@ -31,12 +33,12 @@ export class ClonerService {
       '-c', 'http.lowSpeedLimit=1000',
       '-c', 'http.lowSpeedTime=20',
       'clone', '--depth', '1', '--single-branch', ...(branch ? ['--branch', branch] : []), '--', repoUrl, dest];
-    const opts = { ...(onLine ? { onLine } : {}), timeoutMs: config.limits.cloneTimeoutMs, label: 'git clone' };
+    const opts = { ...(onLine ? { onLine } : {}), ...(env ? { env } : {}), timeoutMs: config.limits.cloneTimeoutMs, label: 'git clone' };
     try {
       await run('git', args, opts);
     } catch (err) {
       // GitHub occasionally stalls or resets a connection; one clean retry fixes nearly all of these.
-      onLine?.(`[hostx] Clone failed (${(err as Error).message}), retrying once...`);
+      onLine?.(`[${siteSlug()}] Clone failed (${(err as Error).message}), retrying once...`);
       await fs.rm(dest, { recursive: true, force: true });
       await run('git', args, opts);
     }
@@ -52,11 +54,11 @@ export class ClonerService {
   }
 
   /** Clones into a temp folder and lists every sub-folder that contains a package.json (monorepo support). */
-  static async scan(repoUrl: string, branch: string | null): Promise<ScanFolder[]> {
+  static async scan(repoUrl: string, branch: string | null, env?: NodeJS.ProcessEnv): Promise<ScanFolder[]> {
     const dest = path.join(config.tmpDir, `scan-${crypto.randomBytes(6).toString('hex')}`);
     await fs.mkdir(config.tmpDir, { recursive: true });
     try {
-      await this.clone(repoUrl, branch, dest);
+      await this.clone(repoUrl, branch, dest, undefined, env);
       const found: ScanFolder[] = [];
       const queue: Array<{ rel: string; depth: number }> = [{ rel: '.', depth: 0 }];
 

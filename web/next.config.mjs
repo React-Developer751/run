@@ -1,7 +1,11 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const api = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
+const api = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+if (process.env.NODE_ENV === 'production' && (!process.env.NEXT_PUBLIC_SITE_URL || !process.env.NEXT_PUBLIC_API_URL)) {
+  // Canonical URLs, sitemap, social images and API calls would all point at localhost.
+  console.warn('\n⚠  NEXT_PUBLIC_SITE_URL / NEXT_PUBLIC_API_URL are not set: this build uses localhost URLs. Set them in web/.env.local before a real deployment.\n');
+}
 
 const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },

@@ -2,13 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { brandSlug } from '@/lib/site';
 import type { DeploymentStatus } from '@/lib/types';
 import { LogViewer } from './LogViewer';
 import { Modal } from './Modal';
 import { StatusBadge } from './StatusBadge';
+import { useSiteName } from './BrandProvider';
 
 /** Admin log viewer: build log of a deployment (live-polled) plus the app's runtime output. */
 export function LogModal({ projectId, deploymentId, title, onClose }: { projectId: string; deploymentId: string | null; title: string; onClose: () => void }) {
+  const siteName = useSiteName();
   const [tab, setTab] = useState<'build' | 'runtime'>(deploymentId ? 'build' : 'runtime');
   const [lines, setLines] = useState<string[]>([]);
   const [status, setStatus] = useState<DeploymentStatus | null>(null);
@@ -20,18 +23,26 @@ export function LogModal({ projectId, deploymentId, title, onClose }: { projectI
     let next = 0;
     let timer: ReturnType<typeof setTimeout>;
     setLines([]);
+    // Server errors (engine restarting) back off up to 15 s instead of hammering it every second.
+    let failures = 0;
     const tick = async () => {
       try {
         const r = await api.admin.deploymentLogs(projectId, deploymentId, next);
         if (cancelled) return;
+        failures = 0;
         next = r.next;
         if (r.lines.length) setLines((p) => [...p, ...r.lines]);
         setStatus(r.status);
         if (r.status === 'live' || r.status === 'failed') return;
-      } catch {
-        /* retry */
+      } catch (e) {
+        const status = (e as { status?: number }).status ?? 0;
+        if (status >= 400 && status < 500) {
+          if (!cancelled) setLines((p) => [...p, `[${brandSlug(siteName)}] Could not load the log: ${(e as Error).message}`]);
+          return;
+        }
+        failures++;
       }
-      timer = setTimeout(tick, 1200);
+      timer = setTimeout(tick, failures ? Math.min(15_000, 1200 * 2 ** failures) : 1200);
     };
     void tick();
     return () => {

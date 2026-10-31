@@ -1,4 +1,5 @@
 import './env.js';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
@@ -10,14 +11,57 @@ const num = (value: string | undefined, fallback: number): number => {
 };
 
 const proxyPort = num(env.HOSTX_PROXY_PORT, 8080);
-const publicScheme: 'http' | 'https' = env.HOSTX_PUBLIC_SCHEME === 'https' ? 'https' : 'http';
-const publicPort = num(env.HOSTX_PUBLIC_PORT, proxyPort);
+const webOrigins = (env.HOSTX_WEB_ORIGIN ?? 'http://localhost:3000').split(',').map((s) => s.trim());
+const smtpUrl = env.HOSTX_SMTP_URL || null;
+
+/** PEM from HOSTX_GITHUB_PRIVATE_KEY (literal "\n" allowed, for one-line .env files) or HOSTX_GITHUB_PRIVATE_KEY_FILE. */
+function githubPrivateKey(): string | null {
+  if (env.HOSTX_GITHUB_PRIVATE_KEY) return env.HOSTX_GITHUB_PRIVATE_KEY.replace(/\\n/g, '\n');
+  if (env.HOSTX_GITHUB_PRIVATE_KEY_FILE) {
+    try {
+      return readFileSync(env.HOSTX_GITHUB_PRIVATE_KEY_FILE, 'utf8');
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+const SECOND_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'edu', 'ac', 'ltd', 'plc', 'gen', 'firm', 'ind', 'nic', 'res']);
+const isProduction = env.NODE_ENV === 'production';
+// Production sits behind Caddy/nginx with TLS: https on 443 unless set otherwise. Development: http on the proxy port.
+const publicScheme: 'http' | 'https' = (env.HOSTX_PUBLIC_SCHEME ?? (isProduction ? 'https' : 'http')) === 'https' ? 'https' : 'http';
+const publicPort = num(env.HOSTX_PUBLIC_PORT, isProduction ? (publicScheme === 'https' ? 443 : 80) : proxyPort);
+
+const hostOf = (url: string | undefined): string | null => {
+  try {
+    return url ? new URL(url).hostname.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+};
+const isIpOrLocal = (host: string) => host === 'localhost' || host.endsWith('.localhost') || /^[\d.]+$/.test(host) || host.includes(':');
+
+/**
+ * Apps domain (Render's "onrender.com"): every app is <slug>.<appsDomain>.
+ * HOSTX_BASE_DOMAIN wins (best: a separate domain such as yourapps.app). Without it, production derives one from the
+ * domain the dashboard is live on: app.deploykaro.com -> apps.deploykaro.com, so apps are <slug>.apps.deploykaro.com.
+ */
+function appsDomain(): { domain: string; auto: boolean } {
+  if (env.HOSTX_BASE_DOMAIN) return { domain: env.HOSTX_BASE_DOMAIN.toLowerCase().replace(/^\*\.|\.$/g, ''), auto: false };
+  const host = hostOf(env.HOSTX_DASHBOARD_URL ?? webOrigins[0]);
+  if (!isProduction || !host || isIpOrLocal(host)) return { domain: 'localhost', auto: !!isProduction };
+  return { domain: `apps.${siteOf(host)}`, auto: true };
+}
+const apps = appsDomain();
 
 export const config = {
   rootDir: root,
   appsDir: path.join(root, 'apps'),
   dataDir: path.join(root, 'data'),
-  dbFile: path.join(root, 'data', 'db.json'),
+  // Control-plane database (SQLite). data/db.json is only read once, to migrate older installs.
+  sqliteFile: path.join(root, 'data', 'hostx.db'),
+  legacyDbFile: path.join(root, 'data', 'db.json'),
+  backupsDir: path.join(root, 'data', 'backups'),
   secretFile: path.join(root, 'data', 'secret.key'),
   logsDir: path.join(root, 'data', 'logs'),
   staticDir: path.join(root, 'data', 'static'),
@@ -28,19 +72,44 @@ export const config = {
   apiHost: env.HOSTX_API_HOST ?? '127.0.0.1',
   apiPort: num(env.HOSTX_API_PORT, 4000),
   proxyPort,
+  // Behind Caddy/nginx bind the app proxy to 127.0.0.1 too, so nobody can skip TLS by hitting :8080 directly.
+  proxyHost: env.HOSTX_PROXY_HOST || undefined,
 
   // Apps are served on <slug>.<baseDomain>. "localhost" works out of the box in modern browsers.
-  baseDomain: (env.HOSTX_BASE_DOMAIN ?? 'localhost').toLowerCase(),
+  baseDomain: apps.domain,
+  /** true when the apps domain was derived from the dashboard's domain (HOSTX_BASE_DOMAIN not set). */
+  baseDomainAuto: apps.auto,
   publicScheme,
   publicPort,
 
   // Comma separated list of dashboard origins allowed to call the API.
-  webOrigins: (env.HOSTX_WEB_ORIGIN ?? 'http://localhost:3000').split(',').map((s) => s.trim()),
+  webOrigins,
+  // Links in emails and redirects after the GitHub connect flow point here.
+  dashboardUrl: (env.HOSTX_DASHBOARD_URL ?? webOrigins[0] ?? 'http://localhost:3000').replace(/\/+$/, ''),
+
+  // Outgoing email: smtps://user:pass@smtp.example.com:465 or smtp://user:pass@smtp.example.com:587 (STARTTLS).
+  // Without it, emails are printed to the engine log in development and skipped in production.
+  mail: {
+    smtpUrl,
+    from: env.HOSTX_MAIL_FROM ?? 'HostX <no-reply@localhost>',
+  },
+  // Unverified accounts may sign in but not deploy. Default: on whenever email can actually be sent.
+  requireVerifiedEmail: env.HOSTX_REQUIRE_VERIFIED_EMAIL ? env.HOSTX_REQUIRE_VERIFIED_EMAIL === 'true' : Boolean(smtpUrl),
+
+  // GitHub App (private repositories + one webhook for every repo). All fields are needed to turn it on.
+  github: {
+    appId: env.HOSTX_GITHUB_APP_ID ?? '',
+    appSlug: env.HOSTX_GITHUB_APP_SLUG ?? '',
+    clientId: env.HOSTX_GITHUB_CLIENT_ID ?? '',
+    clientSecret: env.HOSTX_GITHUB_CLIENT_SECRET ?? '',
+    webhookSecret: env.HOSTX_GITHUB_WEBHOOK_SECRET ?? '',
+    privateKey: githubPrivateKey(),
+  },
 
   // auto | docker | process
   runner: (env.HOSTX_RUNNER ?? 'auto').toLowerCase(),
 
-  isProduction: env.NODE_ENV === 'production',
+  isProduction,
   allowUnsafeProcess: env.HOSTX_ALLOW_UNSAFE_PROCESS === '1',
   // Set true ONLY behind your own reverse proxy (Caddy/nginx): then the client IP is read from X-Forwarded-For.
   trustProxy: env.HOSTX_TRUST_PROXY === 'true',
@@ -58,15 +127,27 @@ export const config = {
   refreshCookie: 'hostx_rt',
 
   limits: {
-    memory: env.HOSTX_APP_MEMORY ?? '300m',
+    memory: env.HOSTX_APP_MEMORY ?? '512m',
     cpus: env.HOSTX_APP_CPUS ?? '0.5',
     pids: '256',
     maxProjectsPerUser: num(env.HOSTX_MAX_PROJECTS, 5),
     maxConcurrentBuilds: num(env.HOSTX_MAX_BUILDS, 2),
     buildTimeoutMs: 10 * 60 * 1000,
+    // Install + build of user code runs in a sandbox container with these hard limits (Docker mode).
+    buildMemory: env.HOSTX_BUILD_MEMORY ?? '1g',
+    buildCpus: env.HOSTX_BUILD_CPUS ?? '1',
+    buildPids: '512',
+    // A build whose folder (including node_modules) grows beyond this fails instead of filling the disk.
+    buildMaxDiskMb: num(env.HOSTX_BUILD_MAX_DISK_MB, 3072),
     cloneTimeoutMs: 2 * 60 * 1000,
     startTimeoutMs: 60 * 1000,
     deploymentsKept: 15,
+    // Docker networks this server can create (one per project): 256 with the README's address pool. Alerts at 80% / 95%.
+    networkCapacity: num(env.HOSTX_NETWORK_CAPACITY, 250),
+    // After a switch, the old version keeps running this long so in-flight requests can finish.
+    drainSeconds: num(env.HOSTX_DRAIN_SECONDS, 10),
+    // Images of this many recent successful deployments are kept on disk for one-click rollback.
+    rollbackImages: 3,
     maxLogBytes: 2 * 1024 * 1024,
   },
 
@@ -75,8 +156,65 @@ export const config = {
   // Public URL of the API, shown to users as the GitHub webhook target.
   apiPublicUrl: (env.HOSTX_API_PUBLIC_URL ?? `http://localhost:${num(env.HOSTX_API_PORT, 4000)}`).replace(/\/+$/, ''),
 
-  portRange: { min: 5001, max: 5999 },
+  // Loopback ports for apps (one per running web service / Docker site). Configurable; 20k by default.
+  portRange: { min: num(env.HOSTX_PORT_MIN, 5001), max: num(env.HOSTX_PORT_MAX, 24999) },
+
+  // Razorpay subscriptions. Billing (and plan limits) are on only when key, secret and webhook secret are set.
+  razorpay: {
+    keyId: env.HOSTX_RAZORPAY_KEY_ID ?? '',
+    keySecret: env.HOSTX_RAZORPAY_KEY_SECRET ?? '',
+    webhookSecret: env.HOSTX_RAZORPAY_WEBHOOK_SECRET ?? '',
+    // Plan ids created in the Razorpay dashboard (Subscriptions -> Plans).
+    planIds: { starter: env.HOSTX_RAZORPAY_PLAN_STARTER ?? '', pro: env.HOSTX_RAZORPAY_PLAN_PRO ?? '' },
+  },
+
+  // Public IPv4 of this server: the A record for apex custom domains (myshop.com), and the address users allow in
+  // MongoDB Atlas "Network Access" (apps reach Atlas from this IP).
+  publicIp: env.HOSTX_PUBLIC_IP || null,
+  // DNS servers used to verify custom domains (public resolvers see changes faster than a local cache).
+  dnsServers: (env.HOSTX_DNS_SERVERS ?? '1.1.1.1,8.8.8.8').split(',').map((s) => s.trim()).filter(Boolean),
+
+  // Bump when the Terms/Privacy change materially; recorded with each sign-up.
+  termsVersion: env.HOSTX_TERMS_VERSION ?? '2026-10-30',
+
+  // Users' apps must not share a registrable domain with the dashboard/API (see checkDomains). Escape hatch for old setups.
+  allowSharedDomain: env.HOSTX_ALLOW_SHARED_DOMAIN === 'true',
+
+
 } as const;
+
+
+/** Rough registrable domain ("eTLD+1") without the public suffix list: a.b.example.co.uk -> example.co.uk. */
+export function siteOf(host: string): string {
+  const labels = host.toLowerCase().replace(/\.$/, '').split('.');
+  if (labels.length <= 2) return labels.join('.');
+  const [sld, tld] = labels.slice(-2) as [string, string];
+  const take = tld.length === 2 && SECOND_LEVEL.has(sld) ? 3 : 2; // co.uk, com.au, co.in, org.in ...
+  return labels.slice(-take).join('.');
+}
+
+/**
+ * Users' apps are untrusted. When they live under the same registrable domain as the dashboard/API they are "same-site":
+ * they can set cookies for the whole domain, a single phishing app gets the entire domain blocklisted, and so on.
+ * Render keeps apps on onrender.com for exactly this reason. Returns a description of the problem, or null.
+ */
+export function sharedDomainProblem(): string | null {
+  if (config.baseDomain === 'localhost' || config.baseDomain.endsWith('.localhost')) return null;
+  // Derived apps.<domain>: accepted (auth cookies are __Host- and every write is Origin-checked); index.ts warns.
+  if (config.baseDomainAuto) return null;
+  const appsSite = siteOf(config.baseDomain);
+  const controlHosts = [...config.webOrigins, config.apiPublicUrl].flatMap((u) => {
+    try {
+      return [new URL(u).hostname];
+    } catch {
+      return [];
+    }
+  });
+  const clash = controlHosts.find((h) => h !== 'localhost' && siteOf(h) === appsSite);
+  return clash
+    ? `Apps domain "${config.baseDomain}" shares the registrable domain "${appsSite}" with ${clash}. Put users' apps on a separate domain (e.g. HOSTX_BASE_DOMAIN=yourapps.app) or set HOSTX_ALLOW_SHARED_DOMAIN=true to accept the risk.`
+    : null;
+}
 
 /** Public URL for a deployed project, e.g. http://my-app.localhost:8080 */
 export function projectUrl(slug: string): string {

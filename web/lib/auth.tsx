@@ -11,6 +11,8 @@ interface AuthState {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (name: string, email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Re-reads the user from the server (e.g. after the email was confirmed in another tab). */
+  reload: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -54,12 +56,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser((await api.register(name, email, password)).user);
   }, []);
 
+  const reload = useCallback(async () => {
+    const r = await api.me().catch(() => null);
+    if (r) setUser(r.user);
+  }, []);
+
   const signOut = useCallback(async () => {
     await api.logout().catch(() => undefined);
     setUser(null);
   }, []);
 
-  const value = useMemo(() => ({ user, loading, signIn, signUp, signOut }), [user, loading, signIn, signUp, signOut]);
+  const value = useMemo(() => ({ user, loading, signIn, signUp, signOut, reload }), [user, loading, signIn, signUp, signOut, reload]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

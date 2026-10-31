@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Icon } from '@/components/Icon';
 import { Modal } from '@/components/Modal';
 import { api } from '@/lib/api';
@@ -14,6 +14,11 @@ export default function AdminUsers() {
   const { data, error, reload } = usePoll(() => api.admin.users(), 10000);
   const { toast, flash } = useToast();
   const [q, setQ] = useState('');
+  // Links from Admin → Support open this page pre-filtered (?q=<email>).
+  useEffect(() => {
+    const preset = new URLSearchParams(window.location.search).get('q');
+    if (preset) setQ(preset);
+  }, []);
   const [busy, setBusy] = useState('');
   const [quota, setQuota] = useState<AdminUser | null>(null);
   const [quotaValue, setQuotaValue] = useState('');
@@ -47,7 +52,7 @@ export default function AdminUsers() {
 
       <div className="card table-card">
         <table className="table">
-          <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Projects</th><th>Last sign-in</th><th>Joined</th><th /></tr></thead>
+          <thead><tr><th>User</th><th>Role</th><th>Status</th><th>Plan</th><th>Projects</th><th>Last sign-in</th><th>Joined</th><th /></tr></thead>
           <tbody>
             {users.map((u) => {
               const self = u.id === me?.id;
@@ -56,6 +61,26 @@ export default function AdminUsers() {
                   <td><div className="cell-main"><b>{u.name}{self && <span className="you">you</span>}</b><small>{u.email}</small></div></td>
                   <td><span className={`badge ${u.role === 'admin' ? 'badge-busy' : 'badge-idle'}`}>{u.role}</span></td>
                   <td><span className={`badge ${u.suspended ? 'badge-bad' : 'badge-live'}`}>{u.suspended ? 'Suspended' : 'Active'}</span></td>
+                  <td>
+                    <select
+                      className="input input-sm"
+                      style={{ width: 'auto', height: 32 }}
+                      value={u.plan}
+                      disabled={busy !== ''}
+                      aria-label={`Plan of ${u.email}`}
+                      title={u.subscriptionStatus ? `Razorpay subscription: ${u.subscriptionStatus}` : 'No paid subscription'}
+                      onChange={(e) => {
+                        const plan = e.target.value as AdminUser['plan'];
+                        if (!window.confirm(`Set ${u.email} to the ${plan} plan? This does not charge or refund anything.`)) return;
+                        void act(`p${u.id}`, () => api.admin.updateUser(u.id, { plan }), 'Plan updated');
+                      }}
+                    >
+                      <option value="free">Free</option>
+                      <option value="starter">Starter</option>
+                      <option value="pro">Pro</option>
+                    </select>
+                    {u.subscriptionStatus && <small className="dim"> · paid</small>}
+                  </td>
                   <td>{u.liveProjects}/{u.projects}{u.maxProjects !== null && <small className="dim"> · limit {u.maxProjects}</small>}</td>
                   <td className="muted">{u.lastLoginAt ? timeAgo(u.lastLoginAt) : 'never'}</td>
                   <td className="muted">{shortDay(u.createdAt)}</td>
@@ -96,7 +121,7 @@ export default function AdminUsers() {
                 </tr>
               );
             })}
-            {data && users.length === 0 && <tr><td colSpan={7} className="empty-row">No users match.</td></tr>}
+            {data && users.length === 0 && <tr><td colSpan={8} className="empty-row">No users match.</td></tr>}
           </tbody>
         </table>
       </div>

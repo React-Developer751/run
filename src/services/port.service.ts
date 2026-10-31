@@ -4,6 +4,8 @@ import { config } from '../config/index.js';
 
 export class PortService {
   private static lock: Promise<unknown> = Promise.resolve();
+  /** Ports handed out for a deploy that has not been saved on its project yet (blue-green switch in progress). */
+  private static pending = new Set<number>();
 
   private static isFree(port: number): Promise<boolean> {
     return new Promise((resolve) => {
@@ -18,12 +20,23 @@ export class PortService {
   static allocate(used: Set<number>): Promise<number> {
     const task = this.lock.then(async () => {
       for (let port = config.portRange.min; port <= config.portRange.max; port++) {
-        if (!used.has(port) && (await this.isFree(port))) return port;
+        if (!used.has(port) && !this.pending.has(port) && (await this.isFree(port))) return port;
       }
       throw new Error('No free ports left on this server');
     });
     this.lock = task.catch(() => undefined);
     return task;
+  }
+
+  /** Like allocate, but keeps the port reserved until release() (it is not stored on a project yet). */
+  static async reserve(used: Set<number>): Promise<number> {
+    const port = await this.allocate(used);
+    this.pending.add(port);
+    return port;
+  }
+
+  static release(port: number): void {
+    this.pending.delete(port);
   }
 
   /**

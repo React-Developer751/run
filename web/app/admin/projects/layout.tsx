@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
   title: 'Projects',
-  description: 'All projects deployed on this HostX server.',
+  description: 'All projects deployed on this server.',
 };
 
 export default function Layout({ children }: { children: ReactNode }) {

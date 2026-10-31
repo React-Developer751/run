@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import type http from 'node:http';
 import { promisify } from 'node:util';
 import { config } from '../config/index.js';
-import { HttpError, parseCookies } from '../utils/http.js';
+import { HttpError, authCookieNames, parseCookies } from '../utils/http.js';
 import { Store, type User } from './store.service.js';
 
 const scrypt = promisify(crypto.scrypt) as (password: string, salt: Buffer, keylen: number) => Promise<Buffer>;
@@ -32,7 +32,10 @@ export class AuthService {
     }
     try {
       this.secret = Buffer.from((await fs.readFile(config.secretFile, 'utf8')).trim(), 'hex');
-    } catch {
+    } catch (err) {
+      // Only a missing file means "first start". Anything else (permissions, I/O) must not silently replace the key:
+      // every stored secret is encrypted with it.
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error(`Cannot read ${config.secretFile}: ${(err as Error).message}`);
       this.secret = crypto.randomBytes(48);
       await fs.mkdir(config.dataDir, { recursive: true });
       await fs.writeFile(config.secretFile, this.secret.toString('hex'), { mode: 0o600 });
@@ -87,7 +90,7 @@ export class AuthService {
 
   /** The access token comes only from the HttpOnly cookie. There is no Authorization-header login any more. */
   static async authenticate(req: http.IncomingMessage): Promise<User | null> {
-    const token = parseCookies(req.headers.cookie)[config.accessCookie];
+    const token = parseCookies(req.headers.cookie)[authCookieNames(req).access];
     if (!token) return null;
     const payload = this.verifyToken(token);
     if (!payload) return null;
@@ -104,6 +107,20 @@ export class AuthService {
     // 401 (not 403) so the dashboard drops the session instead of showing a broken page.
     if (user.suspended) throw new HttpError(401, 'This account has been suspended. Contact your administrator.');
     return user;
+  }
+
+  /** Signed-in user whose email is confirmed (only enforced when HOSTX_REQUIRE_VERIFIED_EMAIL / SMTP is on). */
+  static requireVerified(user: User | null): User {
+    const u = this.requireUser(user);
+    if (config.requireVerifiedEmail && !u.emailVerifiedAt && u.role !== 'admin') {
+      throw new HttpError(403, 'Please confirm your email address first. Check your inbox, or resend the link from the dashboard.');
+    }
+    return u;
+  }
+
+  /** HMAC of a value with the HostX secret (for short-lived signed state, e.g. the GitHub connect flow). */
+  static signValue(data: string): string {
+    return this.sign(data);
   }
 
   static requireAdmin(user: User | null): User {

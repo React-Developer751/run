@@ -1,31 +1,67 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { refreshSiteName } from '@/app/actions';
+import { SITE_NAME_EVENT } from '@/components/BrandProvider';
 import { api } from '@/lib/api';
 import { useToast } from '@/lib/hooks';
-import type { PlatformSettings } from '@/lib/types';
+import { PlanEditor } from '@/components/PlanEditor';
+import type { PlatformSettings, SettingsPatch } from '@/lib/types';
+import type { BusinessDetails } from '@/lib/site';
+
+const BUSINESS_FORM: Array<{ key: keyof BusinessDetails; label: string; placeholder: string; max: number; type?: string; hint?: string; wide?: boolean }> = [
+  { key: 'company', label: 'Business name', placeholder: 'DeployKaro Technologies Pvt Ltd', max: 120 },
+  { key: 'phone', label: 'Phone', placeholder: '+91 98765 43210', max: 30, type: 'tel' },
+  { key: 'address', label: 'Registered address', placeholder: 'Street, City, State, PIN, India', max: 300, wide: true },
+  { key: 'email', label: 'Support & billing email', placeholder: 'support@yourdomain.com', max: 254, type: 'email' },
+  { key: 'abuseEmail', label: 'Abuse reports email', placeholder: 'Same as support if empty', max: 254, type: 'email' },
+  { key: 'grievanceOfficer', label: 'Grievance Officer (name)', placeholder: 'Full name', max: 120, hint: 'Required in India (IT Rules / DPDP).' },
+  { key: 'grievanceEmail', label: 'Grievance email', placeholder: 'Same as support if empty', max: 254, type: 'email' },
+  { key: 'jurisdiction', label: 'Courts / jurisdiction', placeholder: 'Jaipur, Rajasthan', max: 120 },
+];
+const clean = (b: BusinessDetails) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, (v ?? '').trim()]).filter(([, v]) => v));
 
 export default function AdminSettings() {
   const { toast, flash } = useToast();
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [limit, setLimit] = useState('');
+  const [siteName, setSiteName] = useState('');
+  const [business, setBusiness] = useState<BusinessDetails>({});
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    api.admin.settings().then((r) => { setSettings(r.settings); setLimit(String(r.settings.maxProjectsPerUser)); }).catch((e: Error) => setError(e.message));
+    api.admin
+      .settings()
+      .then((r) => {
+        setSettings(r.settings);
+        setLimit(String(r.settings.maxProjectsPerUser));
+        setSiteName(r.settings.siteName);
+        setBusiness(r.settings.business ?? {});
+      })
+      .catch((e: Error) => setError(e.message));
   }, []);
 
-  const save = async (patch: Partial<PlatformSettings>, done: string) => {
+  const save = async (patch: SettingsPatch, done: string): Promise<boolean> => {
     setBusy(true);
     setError('');
     try {
       const r = await api.admin.updateSettings(patch);
       setSettings(r.settings);
       setLimit(String(r.settings.maxProjectsPerUser));
+      setSiteName(r.settings.siteName);
+      setBusiness(r.settings.business ?? {});
+      if (patch.siteName !== undefined || patch.business !== undefined) {
+        // This tab, every component reading them, and the server-rendered pages (landing, legal, contact, titles).
+        window.dispatchEvent(new CustomEvent(SITE_NAME_EVENT, { detail: { siteName: r.settings.siteName, business: r.settings.business ?? {} } }));
+        await refreshSiteName().catch(() => undefined);
+      }
       flash(done);
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return false;
     } finally {
       setBusy(false);
     }
@@ -34,9 +70,106 @@ export default function AdminSettings() {
   if (!settings) return error ? <div className="error-box">{error}</div> : <div className="center-screen"><span className="spinner" /></div>;
 
   return (
-    <div className="stack" style={{ gap: 20, maxWidth: 720 }}>
+    <div className="stack" style={{ gap: 20, maxWidth: 860 }}>
       <div className="page-head" style={{ marginBottom: 0 }}><div><h1>Settings</h1><p>Platform rules. Changes apply immediately, no restart needed.</p></div></div>
       {error && <div className="error-box">{error}</div>}
+
+      <div className="card stack">
+        <div>
+          <h3 className="card-title">Website name</h3>
+          <p className="muted" style={{ marginTop: 6, fontSize: 14 }}>
+            Shown everywhere: logo, landing page, page titles, legal pages, emails and the pages visitors see when an app is paused.
+            Open pages update right away; other visitors see it within a minute.
+          </p>
+        </div>
+        <form
+          className="row"
+          style={{ flexWrap: 'wrap', alignItems: 'flex-start' }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save({ siteName: siteName.trim() }, 'Website name saved');
+          }}
+        >
+          <input
+            id="site-name"
+            className="input"
+            aria-label="Website name"
+            value={siteName}
+            onChange={(e) => setSiteName(e.target.value)}
+            maxLength={40}
+            minLength={2}
+            required
+            style={{ maxWidth: 320 }}
+            placeholder={settings.defaultSiteName}
+          />
+          <button className="btn btn-primary" disabled={busy || siteName.trim().length < 2 || siteName.trim() === settings.siteName}>Save</button>
+          {settings.siteName !== settings.defaultSiteName && (
+            <button type="button" className="btn" disabled={busy} onClick={() => window.confirm(`Go back to "${settings.defaultSiteName}"?`) && void save({ siteName: null }, 'Website name reset')}>
+              Reset to {settings.defaultSiteName}
+            </button>
+          )}
+        </form>
+        <span className="hint">2–40 characters: letters, numbers, spaces and . &amp; &apos; ! + _ -</span>
+      </div>
+
+      <form
+        className="card stack"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save({ business }, 'Business details saved');
+        }}
+      >
+        <div>
+          <h3 className="card-title">Business details</h3>
+          <p className="muted" style={{ marginTop: 6, fontSize: 14 }}>
+            Shown on the Contact page, Terms, Privacy, Refund, Delivery and Acceptable Use pages, and in the footer. Razorpay and Indian law need
+            real ones. Empty fields use the server&apos;s <span className="mono">NEXT_PUBLIC_LEGAL_*</span> values, or show a visible [placeholder].
+          </p>
+        </div>
+        <div className="grid-form">
+          {BUSINESS_FORM.map((f) => (
+            <div className="field" key={f.key} style={f.wide ? { gridColumn: '1 / -1' } : undefined}>
+              <label className="label" htmlFor={`biz-${f.key}`}>{f.label}</label>
+              <input
+                id={`biz-${f.key}`}
+                className="input"
+                type={f.type ?? 'text'}
+                inputMode={f.type === 'tel' ? 'tel' : undefined}
+                maxLength={f.max}
+                placeholder={f.placeholder}
+                value={business[f.key] ?? ''}
+                onChange={(e) => setBusiness({ ...business, [f.key]: e.target.value })}
+              />
+              {f.hint && <span className="hint">{f.hint}</span>}
+            </div>
+          ))}
+        </div>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          <button className="btn btn-primary" disabled={busy || JSON.stringify(clean(business)) === JSON.stringify(clean(settings.business ?? {}))}>Save business details</button>
+          <a className="btn" href="/contact" target="_blank" rel="noreferrer">View Contact page</a>
+        </div>
+      </form>
+
+      <div className="card stack">
+        <div>
+          <h3 className="card-title">App URLs</h3>
+          <p className="muted" style={{ marginTop: 6, fontSize: 14 }}>
+            Every deployed project gets an address on the apps domain, like Render&apos;s <span className="mono">name.onrender.com</span>.
+            A name that is already taken gets a short suffix (<span className="mono">shop-x7k2</span>). Users can also add their own domains.
+          </p>
+        </div>
+        <div className="mono notice-box" style={{ fontSize: 14 }}>{settings.appUrlTemplate}</div>
+        {settings.appsDomain === 'localhost' ? (
+          <span className="hint">Local development address. On the live server set <span className="mono">HOSTX_BASE_DOMAIN</span> (or a real dashboard URL) and restart.</span>
+        ) : settings.appsDomainAuto ? (
+          <span className="hint">
+            Taken from the domain this dashboard runs on. Point <span className="mono">*.{settings.appsDomain}</span> to the server. For extra safety use a separate
+            domain like Render does: set <span className="mono">HOSTX_BASE_DOMAIN=yourapps.app</span> in the server <span className="mono">.env</span> and restart; every project URL changes with it.
+          </span>
+        ) : (
+          <span className="hint">Set by <span className="mono">HOSTX_BASE_DOMAIN</span> in the server <span className="mono">.env</span>. Changing it (and restarting) moves every project URL to the new domain.</span>
+        )}
+      </div>
 
       <div className="card stack">
         <h3 className="card-title">Registration</h3>
@@ -46,8 +179,19 @@ export default function AdminSettings() {
         </label>
       </div>
 
+      {settings.billingEnabled || settings.razorpayKeys ? (
+        <>
+          {!settings.billingEnabled && <div className="notice-box">Razorpay keys are set. Paste a Razorpay plan id into Starter or Pro below to turn on paid plans.</div>}
+          <PlanEditor plans={settings.plans} busy={busy} onSave={save} />
+        </>
+      ) : (
+        <div className="notice-box">
+          Plans (Free / Starter / Pro) take effect once Razorpay is configured. Until then every user gets the limits below.
+        </div>
+      )}
+
       <div className="card stack">
-        <h3 className="card-title">Limits</h3>
+        <h3 className="card-title">{settings.billingEnabled ? 'Without billing' : 'Limits'}</h3>
         <div className="field">
           <label className="label" htmlFor="limit">Default projects per user</label>
           <div className="row">

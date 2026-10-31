@@ -7,10 +7,14 @@ import { logger } from '../utils/logger.js';
 import { isReservedSlug, slugify } from '../utils/validator.js';
 import { ClonerService } from './cloner.service.js';
 import { DetectService, type Detection } from './detect.service.js';
+import { AdminAlertService } from './admin-alert.service.js';
+import { AlertService } from './alert.service.js';
+import { GitHubService } from './github.service.js';
 import { DeployLog, redactPaths } from './log.service.js';
 import { PortService } from './port.service.js';
 import { RunnerService } from './runner.service.js';
-import { Store, type Deployment, type DeploymentStatus, type Project } from './store.service.js';
+import { billingEnabled } from '../config/plans.js';
+import { Store, assertRoomFor, kindOf, type Deployment, type DeploymentStatus, type Project } from './store.service.js';
 
 export interface CreateProjectInput {
   userId: string;
@@ -24,9 +28,36 @@ export interface CreateProjectInput {
   startCommand: string | null;
   outputDir: string | null;
   autoDeploy: boolean;
+  githubInstallationId: number | null;
 }
 
 const projectDir = (p: Project) => path.join(config.appsDir, p.id);
+/** Fields reset whenever an app is (re)started by its owner or a deploy. */
+const FRESH_ACTIVITY = () => ({ lastVisitAt: new Date().toISOString(), pausedAt: null, archiveWarnedAt: null, archivedAt: null });
+
+/** Which status allows Start/Stop. Paused apps use Resume (start); archived ones need a redeploy (Restore). */
+export function assertCanStart(project: Project): void {
+  if (!['stopped', 'paused', 'crashed', 'failed'].includes(project.status) || project.runtime === null) {
+    throw new HttpError(409, project.status === 'archived' ? 'This app is archived: restore (redeploy) it instead.' : `The app is ${project.status}; it cannot be started now.`);
+  }
+}
+export function assertCanStop(project: Project): void {
+  if (!['live', 'crashed'].includes(project.status)) {
+    throw new HttpError(409, project.status === 'deploying' ? 'Wait for the deployment to finish first' : `The app is ${project.status}; there is nothing to stop.`);
+  }
+}
+
+/**
+ * Suspended accounts and suspended projects get nothing (re)started: not by the owner, an admin, a push, a rollback
+ * or the crash monitor. Reads the stored project, so a stale copy cannot slip past a suspension.
+ */
+function assertOwnerActive(project: Project): void {
+  const current = Store.getProject(project.id) ?? project;
+  if (current.suspendedAt) {
+    throw new HttpError(403, `This app was suspended by the administrators${current.suspendedReason ? `: ${current.suspendedReason}` : ''}. Contact support to have it reviewed.`);
+  }
+  if (Store.getUserById(project.userId)?.suspended) throw new HttpError(403, 'This account is suspended, so its apps cannot be started or deployed.');
+}
 const sourceDir = (p: Project) => path.join(projectDir(p), 'src');
 
 /** Resolves the chosen sub-folder and makes sure it cannot escape the cloned repository. */
@@ -61,7 +92,17 @@ async function resolveConfig(project: Project, dir: string): Promise<Detection |
 }
 
 // Docker restarts an existing image, so it needs no source-based detection.
-const PLACEHOLDER: Detection = { kind: 'node', framework: '', outputDir: '', buildCommand: '', startCommand: '', packageName: null, hasPackage: true };
+const PLACEHOLDER: Detection = {
+  kind: 'node',
+  framework: '',
+  outputDir: '',
+  buildCommand: '',
+  startCommand: '',
+  packageName: null,
+  hasPackage: true,
+  nodeVersion: '22',
+  packageManager: 'npm',
+};
 
 export class DeployService {
   private static activeBuilds = 0;
@@ -83,13 +124,19 @@ export class DeployService {
 
   // ── public API ─────────────────────────────────────────
   static async createProject(input: CreateProjectInput): Promise<{ project: Project; deployment: Deployment }> {
-    const port = await PortService.allocate(Store.usedPorts());
+    // Reserved until the project row holds it, so two creates at once never get the same port.
+    const port = await PortService.reserve(Store.usedPorts());
+    try {
+      return await this.createWithPort(input, port);
+    } finally {
+      PortService.release(port);
+    }
+  }
+
+  private static async createWithPort(input: CreateProjectInput, port: number): Promise<{ project: Project; deployment: Deployment }> {
 
     // Everything from here to addProject() is synchronous, so concurrent requests cannot race on limit/slug.
-    const limit = Store.getUserById(input.userId)?.maxProjects ?? Store.settings().maxProjectsPerUser ?? config.limits.maxProjectsPerUser;
-    if (Store.projectsOf(input.userId).length >= limit) {
-      throw new HttpError(403, `Project limit reached (${limit}). Delete a project to create a new one.`);
-    }
+    assertRoomFor(input.userId, input.kindPref ?? 'node');
 
     let slug = slugify(input.name);
     if (isReservedSlug(slug) || Store.getProjectBySlug(slug)) {
@@ -119,6 +166,16 @@ export class DeployService {
       port,
       pid: null,
       containerName: null,
+      githubInstallationId: input.githubInstallationId,
+      domains: [],
+      liveDeploymentId: null,
+      lastRemoteCommit: null,
+      lastVisitAt: now,
+      pausedAt: null,
+      archiveWarnedAt: null,
+      archivedAt: null,
+      suspendedAt: null,
+      suspendedReason: null,
       currentDeploymentId: null,
       commit: null,
       createdAt: now,
@@ -130,6 +187,8 @@ export class DeployService {
   }
 
   static async deploy(project: Project, trigger: Deployment['trigger']): Promise<Deployment> {
+    assertOwnerActive(project);
+    if (this.archiving.has(project.id)) throw new HttpError(409, 'This app is being archived right now. Try again in a minute.');
     const busy = Store.deploymentsOf(project.id).some((d) => ['queued', 'cloning', 'building', 'starting'].includes(d.status));
     if (busy) throw new HttpError(409, 'A deployment is already in progress for this project');
 
@@ -140,6 +199,9 @@ export class DeployService {
       trigger,
       commit: null,
       error: null,
+      image: null,
+      kind: null,
+      rollbackOf: null,
       createdAt: new Date().toISOString(),
       finishedAt: null,
     });
@@ -149,20 +211,175 @@ export class DeployService {
     return deployment;
   }
 
+  /**
+   * One-click rollback: starts the image an earlier successful deployment built (no clone, no build, seconds instead
+   * of minutes) next to the current version and switches traffic when it is healthy. Uses the current env vars.
+   */
+  static async rollback(project: Project, targetId: string): Promise<Deployment> {
+    assertOwnerActive(project);
+    const runner = RunnerService.for(project);
+    if (project.runtime !== 'docker' || !runner.startImage) throw new HttpError(409, 'Rollback is available for apps running in Docker');
+    const target = Store.getDeployment(targetId);
+    if (!target || target.projectId !== project.id || target.status !== 'live' || !target.image || !target.kind) {
+      throw new HttpError(404, 'That deployment cannot be rolled back to. Only recent successful deployments can.');
+    }
+    if (target.id === project.liveDeploymentId) throw new HttpError(409, 'That version is already live');
+    const busy = Store.deploymentsOf(project.id).some((d) => ['queued', 'cloning', 'building', 'starting'].includes(d.status));
+    if (busy) throw new HttpError(409, 'A deployment is already in progress for this project');
+
+    const deployment = await Store.addDeployment({
+      id: Store.newId('d'),
+      projectId: project.id,
+      status: 'starting',
+      trigger: 'rollback',
+      commit: target.commit,
+      error: null,
+      image: target.image,
+      kind: target.kind,
+      rollbackOf: target.id,
+      createdAt: new Date().toISOString(),
+      finishedAt: null,
+    });
+    await Store.updateProject(project.id, { status: 'deploying', currentDeploymentId: deployment.id });
+    void this.runRollback(project.id, deployment.id, target);
+    return deployment;
+  }
+
+  private static async runRollback(projectId: string, deploymentId: string, target: Deployment): Promise<void> {
+    const log = new DeployLog(deploymentId);
+    try {
+      const project = Store.getProject(projectId);
+      if (!project) return;
+      const kind = target.kind as Detection['kind'];
+      const runner = RunnerService.for(project);
+      log.system(`Rolling back to deployment ${target.id}${target.commit ? ` (commit ${target.commit})` : ''}: reusing its image, nothing is rebuilt.`);
+      log.system('The current environment variables are used.');
+
+      const previous = { ...project };
+      const patch = await (runner.startImage as NonNullable<typeof runner.startImage>)(
+        project,
+        kind,
+        target.image as string,
+        log.write,
+      );
+      const { image: _image, ...runtime } = patch;
+      await Store.updateProject(projectId, { ...runtime, kind, commit: target.commit, status: 'live', liveDeploymentId: deploymentId, ...FRESH_ACTIVITY() });
+      await Store.updateDeployment(deploymentId, { status: 'live', finishedAt: new Date().toISOString() });
+      await Store.addEvent(projectId, 'rollback', `Rolled back to ${target.commit ? `commit ${target.commit}` : `deployment ${target.id}`}.`);
+      await runner.retire?.(previous, patch).catch((err) => logger.warn(`Cleanup after rollback of ${project.slug} failed`, err));
+      log.system(`Live at ${projectUrl(project.slug)}`);
+    } catch (err) {
+      await this.fail(projectId, deploymentId, log, err as Error);
+    } finally {
+      await log.close();
+    }
+  }
+
+  /** Marks a deployment failed without taking down a version that is still serving traffic. */
+  private static async fail(projectId: string, deploymentId: string, log: DeployLog, err: Error): Promise<void> {
+    const message = redactPaths(err.message);
+    logger.warn(`Deployment ${deploymentId} failed: ${message}`);
+    log.system(`Deployment failed: ${message}`);
+    const deployment = await Store.updateDeployment(deploymentId, { status: 'failed', error: message, finishedAt: new Date().toISOString() }).catch(() => null);
+    const project = Store.getProject(projectId);
+    if (!project) return;
+    const stillServing = project.runtime !== null && (await RunnerService.for(project).isAlive(project).catch(() => false));
+    // A failed restore of an archived app stays "archived"; a suspended app stays suspended whatever happened.
+    if (!project.suspendedAt) {
+      await Store.updateProject(projectId, { status: stillServing ? 'live' : project.archivedAt ? 'archived' : 'failed' }).catch(() => undefined);
+    }
+
+    // Every failure reaches the admins (in-app); emails are limited to one per project per hour.
+    const owner = Store.getUserById(project.userId);
+    const how = { create: 'first deploy', redeploy: 'manual redeploy', auto: 'auto-deploy', rollback: 'rollback' }[deployment?.trigger ?? 'redeploy'];
+    await AdminAlertService.notify({
+      kind: 'deploy-failed',
+      severity: stillServing ? 'warning' : 'critical',
+      title: `Deploy failed: ${project.name}`,
+      message: `${owner?.email ?? 'unknown user'} · ${how} · ${message.split('\n')[0]?.slice(0, 300) ?? ''} ${stillServing ? '(previous version still live)' : '(app is offline)'}`,
+      projectId: project.id,
+      userId: project.userId,
+      emailKey: `deploy-failed:${project.id}`,
+    }).catch((e) => logger.warn('Admin alert failed', e));
+    // Nobody is watching an automatic deploy: tell the owner.
+    if (deployment?.trigger === 'auto') {
+      AlertService.notify(
+        project,
+        'deploy-failed',
+        `Auto-deploy of ${project.name} failed`,
+        `the automatic deployment of "${project.name}" after a new commit failed: ${message.split('\n')[0]?.slice(0, 300)}. ${stillServing ? 'The previous version is still live.' : 'The app is offline.'}`,
+      );
+    }
+  }
+
   static async stop(project: Project): Promise<void> {
+    // Status first: while the container takes up to ~10 s to stop, the crash monitor must not see "live but down".
+    await Store.updateProject(project.id, { status: 'stopped' });
     await RunnerService.for(project).stop(project);
-    await Store.updateProject(project.id, { status: 'stopped', pid: null });
+    await Store.updateProject(project.id, { pid: null });
   }
 
   static async start(project: Project): Promise<void> {
-    if (project.runtime === null) throw new HttpError(409, 'Nothing to start yet. Deploy this project first.');
+    if (project.runtime === null) throw new HttpError(409, project.status === 'archived' ? 'This app is archived: restore (redeploy) it instead.' : 'Nothing to start yet. Deploy this project first.');
+    assertOwnerActive(project);
     try {
       const srcDir = project.runtime === 'docker' ? sourceDir(project) : await safeWorkDir(project);
       const detection = (project.runtime === 'docker' ? null : await resolveConfig(project, srcDir)) ?? PLACEHOLDER;
       const patch = await RunnerService.for(project).start(project, srcDir, detection);
-      await Store.updateProject(project.id, { ...patch, status: 'live' });
+      // Starting (or resuming a paused app) counts as activity: it gets a full new period before it can pause again.
+      await Store.updateProject(project.id, { ...patch, status: 'live', ...FRESH_ACTIVITY() });
     } catch (err) {
-      throw new HttpError(500, `Could not start the app: ${(err as Error).message}`);
+      if (err instanceof HttpError) throw err;
+      logger.warn(`Start of ${project.slug} failed`, err);
+      // Never show server paths to users.
+      throw new HttpError(500, `Could not start the app: ${redactPaths((err as Error).message)}. Try Redeploy.`);
+    }
+  }
+
+  /**
+   * Admin action against abuse or policy breaches (Render's "suspend service"): the app goes offline at once,
+   * visitors see a "suspended" page, and the owner cannot start, redeploy or roll it back until an admin lifts it.
+   * Nothing is deleted. A deployment that is still building is not put online.
+   */
+  static async suspend(project: Project, reason: string): Promise<Project> {
+    // Status first, so the proxy, crash monitor and auto-deploy treat it as suspended while the app stops.
+    await Store.updateProject(project.id, { status: 'suspended', suspendedAt: new Date().toISOString(), suspendedReason: reason });
+    if (project.runtime !== null) {
+      await RunnerService.for(project).stop(project).catch((err) => logger.warn(`Stopping suspended ${project.slug} failed`, err));
+    }
+    return Store.updateProject(project.id, { pid: null });
+  }
+
+  /** Lifts a suspension. An app that had been deployed is started again; otherwise it waits for a deploy. */
+  static async unsuspend(project: Project): Promise<Project> {
+    // Never deployed (or archived meanwhile): back to that state; otherwise stopped, then started below.
+    const idle = project.archivedAt ? 'archived' : 'failed';
+    const cleared = await Store.updateProject(project.id, { status: project.runtime === null ? idle : 'stopped', suspendedAt: null, suspendedReason: null });
+    if (cleared.runtime !== null && !Store.getUserById(cleared.userId)?.suspended) {
+      await this.start(cleared).catch((err) => logger.warn(`Restart of ${cleared.slug} after unsuspend failed`, err));
+    }
+    return Store.getProject(project.id) ?? cleared;
+  }
+
+  /**
+   * Free plan, long inactive: frees the disk (containers, images, build output) but keeps the project itself:
+   * settings, env vars, domains, URL and history. Bringing it back is a normal redeploy from GitHub.
+   */
+  private static archiving = new Set<string>();
+
+  static async archive(project: Project): Promise<void> {
+    if (this.archiving.has(project.id)) return;
+    this.archiving.add(project.id);
+    try {
+      // Status first, so the proxy, monitor and auto-deploy treat it as archived while files are being removed.
+      await Store.updateProject(project.id, { status: 'archived', archivedAt: new Date().toISOString() });
+      await RunnerService.for(project).remove(project).catch((err) => logger.warn(`Archive cleanup of ${project.id} was incomplete`, err));
+      await fs.rm(projectDir(project), { recursive: true, force: true });
+      // Images are gone: old versions can no longer be rolled back to. The port goes back to the pool (0 = none).
+      for (const d of Store.deploymentsOf(project.id)) if (d.image) await Store.updateDeployment(d.id, { image: null });
+      await Store.updateProject(project.id, { runtime: null, pid: null, containerName: null, liveDeploymentId: null, port: 0 });
+    } finally {
+      this.archiving.delete(project.id);
     }
   }
 
@@ -173,21 +390,34 @@ export class DeployService {
   }
 
   /** On boot: close dangling deployments and bring back apps that were live before the restart. */
-  static async recover(): Promise<void> {
+  /**
+   * Before the API and proxy start listening: settle what a restart interrupted. Kept fast (no app starts) so a
+   * redeploy started right after boot is never overwritten by recovery.
+   */
+  static async recoverStatuses(): Promise<void> {
     for (const d of Store.allDeployments()) {
       if (['queued', 'cloning', 'building', 'starting'].includes(d.status)) {
         await Store.updateDeployment(d.id, {
           status: 'failed',
-          error: 'Interrupted by a HostX restart',
+          error: 'Interrupted by a platform restart',
           finishedAt: new Date().toISOString(),
         });
       }
     }
     for (const project of Store.allProjects()) {
+      if (project.status !== 'deploying') continue;
+      // Blue-green: the previous version may still be serving. Only an app that is really down counts as failed.
+      const alive = project.runtime !== null && (await RunnerService.for(project).isAlive(project).catch(() => false));
+      await Store.updateProject(project.id, { status: alive ? 'live' : 'failed' });
+    }
+    await RunnerService.current().cleanupOrphans?.().catch((err) => logger.warn('Orphan cleanup failed', err));
+  }
+
+  /** After the servers are up: bring back apps that were live before the restart. */
+  static async recover(): Promise<void> {
+    for (const project of Store.allProjects()) {
       try {
-        if (project.status === 'deploying') {
-          await Store.updateProject(project.id, { status: 'failed' });
-        } else if (project.status === 'live' && !(await RunnerService.for(project).isAlive(project))) {
+        if (project.status === 'live' && !(await RunnerService.for(project).isAlive(project))) {
           logger.info(`Restoring ${project.slug}...`);
           await this.start(project);
         }
@@ -221,9 +451,20 @@ export class DeployService {
       await fs.rm(sourceDir(project), { recursive: true, force: true });
       await fs.mkdir(projectDir(project), { recursive: true });
       log.system(`Cloning ${project.repoUrl}${project.branch ? ` (${project.branch})` : ''}`);
-      await ClonerService.clone(project.repoUrl, project.branch, sourceDir(project), log.write);
+      try {
+        await ClonerService.clone(project.repoUrl, project.branch, sourceDir(project), log.write, await GitHubService.gitEnv(project.githubInstallationId));
+      } catch (err) {
+        // Common when restoring an old (archived) app: the repo was deleted, renamed, made private or lost the branch.
+        throw new Error(
+          `Could not download ${project.repoUrl.replace(/\.git$/, '')}${project.branch ? ` (branch ${project.branch})` : ''}. ` +
+            'If the repository was renamed, moved, deleted or made private, set the right repository in Settings → Repository ' +
+            '(or connect GitHub for private repositories), then deploy again. ' +
+            `Details: ${(err as Error).message}`,
+        );
+      }
 
       const commit = await ClonerService.headCommit(sourceDir(project));
+      if (commit) await Store.updateProject(projectId, { lastRemoteCommit: commit });
       const srcDir = await safeWorkDir(project);
       const detection = await resolveConfig(project, srcDir);
       if (!detection) {
@@ -234,41 +475,75 @@ export class DeployService {
       if (detection.kind === 'node' && !detection.startCommand.trim()) {
         throw new Error('A web service needs a start command (for example: npm start).');
       }
+      // The code may turn out to be the other kind than counted so far (type left on "auto", folder or repo changed):
+      // it must still fit the plan, or a static-site slot could be turned into an unlimited always-on server.
+      if (detection.kind !== kindOf(project)) {
+        try {
+          assertRoomFor(project.userId, detection.kind, project.id);
+        } catch (err) {
+          throw new Error(`This code is a ${detection.kind === 'node' ? 'web service' : 'static site'}. ${(err as Error).message}`);
+        }
+        await Store.updateProject(projectId, { kind: detection.kind });
+      }
+      // Archived apps gave their port back; take a fresh one before starting again.
+      if (!project.port) {
+        const port = await PortService.reserve(Store.usedPorts());
+        try {
+          await Store.updateProject(projectId, { port });
+        } finally {
+          PortService.release(port);
+        }
+      }
       log.system(`Detected ${detection.framework} (${detection.kind === 'static' ? 'static site' : 'web service'}), commit ${commit ?? 'unknown'}`);
+      if (detection.hasPackage) log.system(`Node.js ${detection.nodeVersion} · install: ${detection.packageManager}`);
       log.system(`Build: ${detection.buildCommand || '(none)'} · ${detection.kind === 'static' ? `Output: ${detection.outputDir}` : `Start: ${detection.startCommand}`}`);
       await Store.updateDeployment(deploymentId, { commit });
 
+      // A database URL in a static site's build env would end up in public JavaScript if the code references it.
+      if (detection.kind === 'static' && Object.keys(project.env).some((k) => /MONGO/i.test(k))) {
+        log.system('Warning: this is a static site. Keep MONGODB_URI in your backend service, never in frontend code.');
+      }
+
+      const previous = { ...project };
       const patch = await runner.deploy({
-        project: { ...project },
+        project: { ...(Store.getProject(projectId) ?? project) },
         srcDir,
         detection,
         log: log.write,
         stage: setStage,
       });
 
+      const { image, ...runtime } = patch;
+      // The owner or this app was suspended while it was building: do not put it online.
+      const latest = Store.getProject(projectId);
+      if (latest?.suspendedAt || Store.getUserById(project.userId)?.suspended) {
+        if (latest?.suspendedAt) {
+          await Store.updateProject(projectId, { ...runtime });
+          await RunnerService.for(Store.getProject(projectId) as Project).stop(Store.getProject(projectId) as Project).catch(() => undefined);
+          await Store.updateProject(projectId, { pid: null, status: 'suspended' });
+        } else {
+          await Store.updateProject(projectId, { ...runtime, status: 'live' });
+          await this.stop(Store.getProject(projectId) as Project);
+        }
+        throw new Error(`The ${latest?.suspendedAt ? 'app' : 'account'} was suspended during the deployment, so the app was not started.`);
+      }
       await Store.updateProject(projectId, {
-        ...patch,
+        ...runtime,
         kind: detection.kind,
         framework: detection.framework,
         commit,
         status: 'live',
+        liveDeploymentId: deploymentId,
+        ...FRESH_ACTIVITY(),
       });
-      await Store.updateDeployment(deploymentId, { status: 'live', finishedAt: new Date().toISOString() });
+      await Store.updateDeployment(deploymentId, { status: 'live', image: image ?? null, kind: detection.kind, finishedAt: new Date().toISOString() });
+      // Traffic now goes to the new version: tear down the old one.
+      await runner.retire?.(previous, patch).catch((err) => logger.warn(`Cleanup of the previous version of ${project.slug} failed`, err));
       // The image already contains everything; keep disk usage flat.
       if (patch.runtime === 'docker') await fs.rm(sourceDir(project), { recursive: true, force: true });
       log.system(`Live at ${projectUrl(project.slug)}`);
     } catch (err) {
-      const message = redactPaths((err as Error).message);
-      logger.warn(`Deployment ${deploymentId} failed: ${message}`);
-      log.system(`Deployment failed: ${message}`);
-      await Store.updateDeployment(deploymentId, { status: 'failed', error: message, finishedAt: new Date().toISOString() }).catch(() => undefined);
-
-      // A failed redeploy must not take down a version that is still serving traffic.
-      const project = Store.getProject(projectId);
-      if (project) {
-        const stillServing = project.runtime !== null && (await RunnerService.for(project).isAlive(project).catch(() => false));
-        await Store.updateProject(projectId, { status: stillServing ? 'live' : 'failed' }).catch(() => undefined);
-      }
+      await this.fail(projectId, deploymentId, log, err as Error);
     } finally {
       if (slot) this.releaseSlot();
       await log.close();

@@ -5,7 +5,8 @@ import path from 'node:path';
 import { config } from '../config/index.js';
 import { clientIp } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
-import { Store, type Project } from './store.service.js';
+import { InactivityService } from './inactivity.service.js';
+import { Store, siteName, type Project } from './store.service.js';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -40,16 +41,31 @@ function statusPage(res: http.ServerResponse, status: number, title: string, mes
 <style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(900px 500px at 50% -120px,rgba(124,92,255,.22),transparent 70%),radial-gradient(700px 460px at 100% 10%,rgba(236,72,153,.14),transparent 70%),#f4f2ff;color:#1b1646;font-family:ui-sans-serif,system-ui,sans-serif}
 main{text-align:center;padding:24px}h1{font-size:72px;margin:0;background:linear-gradient(135deg,#5b4bf0,#8b5cf6 48%,#ec4899);-webkit-background-clip:text;background-clip:text;color:transparent}
 h2{margin:6px 0 10px}p{color:#58547f;max-width:420px;line-height:1.6;margin:0 auto 22px}small{color:#8681ad;letter-spacing:.2em;text-transform:uppercase;font-size:11px}</style></head>
-<body><main><h1>${status}</h1><h2>${escapeHtml(title)}</h2><p>${escapeHtml(message)}</p><small>Hosted on HostX</small></main></body></html>`;
+<body><main><h1>${status}</h1><h2>${escapeHtml(title)}</h2><p>${escapeHtml(message)}</p><small>Hosted on ${escapeHtml(siteName())}</small></main></body></html>`;
   res.writeHead(status, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
   res.end(html);
 }
 
+// RFC 7230 hop-by-hop headers belong to one connection and must not be forwarded.
+const HOP_BY_HOP = ['connection', 'keep-alive', 'proxy-connection', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-authorization', 'proxy-authenticate'];
+
+function withoutHopByHop(headers: http.IncomingHttpHeaders): http.IncomingHttpHeaders {
+  const out = { ...headers };
+  // Headers named in Connection: are hop-by-hop too.
+  for (const name of String(headers.connection ?? '').split(',')) delete out[name.trim().toLowerCase()];
+  for (const name of HOP_BY_HOP) delete out[name];
+  return out;
+}
+
+/** A redeploy keeps the previous version running (blue-green), so it keeps serving until the switch. */
+const isServing = (p: Project) => p.status === 'live' || (p.status === 'deploying' && p.runtime !== null);
+
 function resolveProject(hostHeader: string | undefined): Project | null {
   if (!hostHeader) return null;
-  const hostname = (hostHeader.split(':')[0] ?? '').toLowerCase();
+  const hostname = (hostHeader.split(':')[0] ?? '').toLowerCase().replace(/\.$/, '');
   const suffix = `.${config.baseDomain}`;
-  if (!hostname.endsWith(suffix)) return null;
+  // Anything outside the apps domain can only be a verified custom domain.
+  if (!hostname.endsWith(suffix)) return Store.getProjectByDomain(hostname) ?? null;
   const slug = hostname.slice(0, -suffix.length);
   if (!slug || slug.includes('.')) return null;
   return Store.getProjectBySlug(slug) ?? null;
@@ -96,15 +112,31 @@ export class ProxyService {
   /** Host-header based reverse proxy built on node:http only. Handles HTTP, streaming and WebSocket upgrades. */
   public static createProxyServer(): http.Server {
     const server = http.createServer((req, res) => {
+      // yourapps.app and www.yourapps.app have no app of their own: send visitors to the dashboard.
+      const hostname = (req.headers.host ?? '').split(':')[0]?.toLowerCase();
+      if (config.webOrigins[0] && (hostname === config.baseDomain || hostname === `www.${config.baseDomain}`)) {
+        res.writeHead(302, { Location: config.webOrigins[0], 'Cache-Control': 'no-store' });
+        return res.end();
+      }
       const project = resolveProject(req.headers.host);
       if (!project) return statusPage(res, 404, 'App not found', 'No deployment exists at this address.');
-      if (project.status !== 'live') {
+      // Paused apps are not woken up by visits (the owner resumes them), so only serving apps count as visited.
+      if (isServing(project)) InactivityService.touch(project.id);
+      if (!isServing(project)) {
         const msg =
           project.status === 'deploying'
             ? 'This app is being deployed right now. Refresh in a moment.'
             : project.status === 'stopped'
               ? 'This app has been stopped by its owner.'
-              : 'The last deployment of this app failed.';
+              : project.status === 'crashed'
+                ? 'This app crashed. Its owner has been notified.'
+                : project.status === 'paused'
+                  ? `This app is paused because it had no visitors for a while. Its owner can resume it from the ${siteName()} dashboard in one click.`
+                  : project.status === 'suspended'
+                    ? `This app has been suspended by the ${siteName()} team.`
+                    : project.status === 'archived'
+                    ? `This app was archived after a long time without visitors. Its owner can redeploy it from the ${siteName()} dashboard.`
+                    : 'The last deployment of this app failed.';
         return statusPage(res, 503, 'App unavailable', msg);
       }
       if (project.runtime === 'static') return serveStatic(project, req, res);
@@ -117,14 +149,19 @@ export class ProxyService {
           method: req.method,
           timeout: 120_000,
           headers: {
-            ...req.headers,
+            ...withoutHopByHop(req.headers),
             'x-forwarded-for': clientIp(req),
             'x-forwarded-host': req.headers.host ?? '',
             'x-forwarded-proto': config.publicScheme,
           },
         },
         (proxyRes) => {
-          res.writeHead(proxyRes.statusCode ?? 502, proxyRes.headers);
+          // Server-sent events and long polls are quiet on purpose: no idle timeout once such a response started.
+          if (String(proxyRes.headers['content-type'] ?? '').startsWith('text/event-stream')) proxyReq.setTimeout(0);
+          // If the app dies mid-response (e.g. its old version is retired), end the client's request instead of hanging.
+          proxyRes.on('aborted', () => res.destroy());
+          proxyRes.on('error', () => res.destroy());
+          res.writeHead(proxyRes.statusCode ?? 502, withoutHopByHop(proxyRes.headers));
           proxyRes.pipe(res);
         },
       );
@@ -142,10 +179,15 @@ export class ProxyService {
     // WebSocket / HMR: replay the upgrade request to the app and pipe the raw sockets together.
     server.on('upgrade', (req, socket, head) => {
       const project = resolveProject(req.headers.host);
-      if (!project || project.status !== 'live' || project.runtime === 'static') return socket.destroy();
+      if (!project || !isServing(project) || project.runtime === 'static') return socket.destroy();
 
       const upstream = net.connect(project.port, '127.0.0.1', () => {
-        const headers = req.rawHeaders.reduce((acc, cur, i) => acc + (i % 2 === 0 ? `${cur}: ` : `${cur}\r\n`), '');
+        // Client-supplied X-Forwarded-* are replaced by ours, as for normal requests (socket.io reads them).
+        const kept = req.rawHeaders.reduce((acc, cur, i, all) => {
+          if (i % 2 === 1) return acc;
+          return /^x-forwarded-(for|host|proto)$/i.test(cur) ? acc : `${acc}${cur}: ${all[i + 1]}\r\n`;
+        }, '');
+        const headers = `${kept}X-Forwarded-For: ${clientIp(req)}\r\nX-Forwarded-Host: ${req.headers.host ?? ''}\r\nX-Forwarded-Proto: ${config.publicScheme}\r\n`;
         upstream.write(`${req.method} ${req.url} HTTP/1.1\r\n${headers}\r\n`);
         if (head.length > 0) upstream.write(head);
         socket.pipe(upstream).pipe(socket);

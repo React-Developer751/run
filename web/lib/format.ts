@@ -9,8 +9,8 @@ export function timeAgo(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-export const triggerLabel = (t: 'create' | 'redeploy' | 'auto') =>
-  t === 'create' ? 'Initial deploy' : t === 'auto' ? 'Auto-deploy · new commit' : 'Manual redeploy';
+export const triggerLabel = (t: 'create' | 'redeploy' | 'auto' | 'rollback') =>
+  t === 'create' ? 'Initial deploy' : t === 'auto' ? 'Auto-deploy · new commit' : t === 'rollback' ? 'Rollback' : 'Manual redeploy';
 
 export function repoLabel(repoUrl: string): string {
   return repoUrl.replace('https://github.com/', '').replace(/\.git$/, '');

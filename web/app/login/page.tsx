@@ -1,12 +1,14 @@
 import type { Metadata } from 'next';
 import { AuthForm } from '@/components/AuthForm';
+import { getSiteName } from '@/lib/brand';
 
-export const metadata: Metadata = {
-  title: 'Sign in',
-  description: 'Sign in to HostX to manage your deployments, build logs and environment variables.',
-  alternates: { canonical: '/login' },
-  robots: { index: false, follow: true },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: 'Sign in',
+    description: `Sign in to ${await getSiteName()} to manage your deployments, build logs and environment variables.`,
+    robots: { index: false, follow: true },
+  };
+}
 
 export default function LoginPage() {
   return <AuthForm mode="login" />;

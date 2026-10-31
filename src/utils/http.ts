@@ -8,9 +8,33 @@ export function parseCookies(header: string | undefined): Record<string, string>
   const out: Record<string, string> = {};
   for (const part of (header ?? '').split(';')) {
     const i = part.indexOf('=');
-    if (i > 0) out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim());
+    if (i <= 0) continue;
+    const name = part.slice(0, i).trim();
+    // First one wins (most specific path) and a malformed value is skipped: a cookie planted by another site must not 500 every request.
+    if (name in out) continue;
+    try {
+      out[name] = decodeURIComponent(part.slice(i + 1).trim());
+    } catch {
+      /* ignore malformed cookie */
+    }
   }
   return out;
+}
+
+/** Secure cookies: always in production, or when a trusted proxy says the request came in over https. */
+export function secureCookies(req: http.IncomingMessage): boolean {
+  if (config.cookieSecure === 'true') return true;
+  if (config.cookieSecure === 'false') return false;
+  return config.isProduction || (config.trustProxy && req.headers['x-forwarded-proto'] === 'https');
+}
+
+/**
+ * Over https the auth cookies use the __Host- prefix: browsers then refuse a version set by any other subdomain,
+ * so a user's app on <slug>.yourdomain cannot plant ("toss") its own session cookie onto the API.
+ */
+export function authCookieNames(req: http.IncomingMessage): { access: string; refresh: string } {
+  const prefix = secureCookies(req) ? '__Host-' : '';
+  return { access: `${prefix}${config.accessCookie}`, refresh: `${prefix}${config.refreshCookie}` };
 }
 
 export class HttpError extends Error {
@@ -65,7 +89,7 @@ export class Router {
       let ok = true;
       route.segments.forEach((seg, i) => {
         const part = parts[i] as string;
-        if (seg.startsWith(':')) params[seg.slice(1)] = decodeURIComponent(part);
+        if (seg.startsWith(':')) params[seg.slice(1)] = safeDecode(part) ?? '\0';
         else if (seg !== part) ok = false;
       });
       if (!ok) continue;
@@ -73,6 +97,15 @@ export class Router {
       if (route.method === method) return { handler: route.handler, params };
     }
     return pathMatched ? 'method' : null;
+  }
+}
+
+/** decodeURIComponent throws on input like "%E0"; a malformed URL must be a 404, not a crashed request. */
+function safeDecode(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
   }
 }
 
@@ -141,8 +174,12 @@ function applyCors(req: http.IncomingMessage, res: http.ServerResponse): void {
 function enforceOrigin(req: http.IncomingMessage): void {
   const method = req.method ?? 'GET';
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return;
+  // A browser always sends Origin on cross-site POSTs. Refuse foreign ones even without cookies: otherwise a page could
+  // log the visitor into the attacker's account (login CSRF). Server-to-server webhooks send no Origin and pass.
+  if (req.headers.origin && !config.webOrigins.includes(req.headers.origin)) throw new HttpError(403, 'Cross-site request blocked');
   const cookies = parseCookies(req.headers.cookie);
-  if (!cookies[config.accessCookie] && !cookies[config.refreshCookie]) return; // no ambient credentials to abuse
+  const names = authCookieNames(req);
+  if (!cookies[names.access] && !cookies[names.refresh]) return; // no ambient credentials to abuse
   let origin = req.headers.origin;
   if (!origin && req.headers.referer) {
     try {
@@ -194,7 +231,14 @@ export function createApiServer(router: Router, authenticate: (req: http.Incomin
         ip: clientIp(req),
         headers: req.headers,
         raw: () => (rawPromise ??= readRaw(req)),
-        json: async () => parseJsonObject(await (rawPromise ??= readRaw(req))),
+        json: async () => {
+          const body = await (rawPromise ??= readRaw(req));
+          // JSON only: an HTML form cannot send application/json without a CORS preflight, which we never grant to others.
+          if (body.length > 0 && !/^application\/json\b/i.test(req.headers['content-type'] ?? '')) {
+            throw new HttpError(415, 'Send the request body as application/json');
+          }
+          return parseJsonObject(body);
+        },
       };
       const result = await matched.handler(ctx);
       send(res, ctx.status, result ?? { ok: true });

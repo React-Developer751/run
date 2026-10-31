@@ -11,6 +11,8 @@ export interface DeployContext {
   /** Absolute path of the folder to build (repo root or chosen sub-folder). */
   srcDir: string;
   detection: Detection;
+  /** Variables passed to the image build. Defaults to project.env. */
+  buildEnv?: Record<string, string>;
   log: (line: string) => void;
   stage: (status: DeploymentStatus) => Promise<void>;
 }
@@ -19,24 +21,56 @@ export interface RuntimePatch {
   runtime: RuntimeKind;
   pid: number | null;
   containerName: string | null;
+  /** Set when the new version listens on a different port than the old one (zero-downtime switch). */
+  port?: number;
+  /** Image built for this version (Docker), kept so the deployment can be rolled back to. */
+  image?: string;
+}
+
+export interface AppHealth {
+  running: boolean;
+  /** How often the runtime restarted the app by itself (Docker restart policy). */
+  restartCount: number;
+  exitCode: number | null;
+  oomKilled: boolean;
 }
 
 export interface Runner {
   readonly name: 'docker' | 'process';
   /** Builds the project and starts it. Resolves once the app answers on its port. */
   deploy(ctx: DeployContext): Promise<RuntimePatch>;
+  /**
+   * Called after the project record points at the new version (traffic has switched over).
+   * Removes what the previous version left running. `previous` is the project as it was before the deploy.
+   */
+  retire?(previous: Project, current: RuntimePatch): Promise<void>;
   /** Starts an already built app again (after a stop or a HostX restart). */
   start(project: Project, srcDir: string, detection: Detection): Promise<RuntimePatch>;
+  /** Runs an image built by an earlier deployment again (rollback). Docker only. */
+  startImage?(project: Project, kind: Detection['kind'], image: string, log: (line: string) => void): Promise<RuntimePatch>;
+  /** Removes leftovers of interrupted deploys and builds (Docker only), run at boot. */
+  cleanupOrphans?(): Promise<void>;
+  /** Changes memory/CPU of the running app in place (Docker only). */
+  updateLimits?(project: Project, memory: string, cpus: string): Promise<void>;
   stop(project: Project): Promise<void>;
   /** Stops the app and deletes everything it left behind (images, static files, logs). */
   remove(project: Project): Promise<void>;
   isAlive(project: Project): Promise<boolean>;
+  health(project: Project): Promise<AppHealth>;
   runtimeLogs(project: Project, lines: number): Promise<string>;
 }
 
 export class RunnerService {
-  private static docker = new DockerRunner();
-  private static process = new ProcessRunner();
+  // Created on first use: docker.service imports this module (via storage-monitor), so a field initializer could
+  // run before DockerRunner exists when a file imports docker.service first.
+  private static dockerRunner: DockerRunner | null = null;
+  private static processRunner: ProcessRunner | null = null;
+  private static get docker(): DockerRunner {
+    return (this.dockerRunner ??= new DockerRunner());
+  }
+  private static get process(): ProcessRunner {
+    return (this.processRunner ??= new ProcessRunner());
+  }
   private static dockerAvailable = false;
 
   static async init(): Promise<void> {

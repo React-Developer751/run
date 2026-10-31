@@ -1,27 +1,54 @@
-import { config, projectUrl } from './config/index.js';
+import { config, projectUrl, sharedDomainProblem } from './config/index.js';
 import { Router, createApiServer } from './utils/http.js';
 import { logger } from './utils/logger.js';
 import { registerAdminRoutes } from './routes/admin.routes.js';
 import { registerAuthRoutes } from './routes/auth.routes.js';
+import { registerBillingRoutes } from './routes/billing.routes.js';
 import { registerDeployRoutes } from './routes/deploy.routes.js';
+import { registerSupportRoutes } from './routes/support.routes.js';
 import { AutoDeployService } from './services/autodeploy.service.js';
 import { AuthService } from './services/auth.service.js';
 import { DeployService } from './services/deploy.service.js';
+import { MonitorService } from './services/monitor.service.js';
+import { DomainService } from './services/domain.service.js';
+import { BackupService } from './services/backup.service.js';
+import { StorageMonitorService } from './services/storage-monitor.service.js';
+import { InactivityService } from './services/inactivity.service.js';
+import { Db } from './services/db.service.js';
 import { ProxyService } from './services/proxy.service.js';
 import { RunnerService } from './services/runner.service.js';
 import { Store } from './services/store.service.js';
 import { Vault } from './services/vault.service.js';
 
 async function main(): Promise<void> {
+  // The server env template marks every value to fill in with FILL_ME: never start production half-configured.
+  const unfilled = Object.entries(process.env).filter(([k, v]) => k.startsWith('HOSTX_') && v?.includes('FILL_ME')).map(([k]) => k);
+  if (config.isProduction && unfilled.length) throw new Error(`Fill in (or comment out) these settings in .env first: ${unfilled.join(', ')}`);
+  if (config.isProduction && config.baseDomainAuto) {
+    logger.warn(
+      config.baseDomain === 'localhost'
+        ? 'HOSTX_BASE_DOMAIN is not set and the dashboard URL has no domain: app URLs will not work. Set HOSTX_BASE_DOMAIN (e.g. yourapps.app).'
+        : `Apps domain derived from the dashboard: ${projectUrl('<app>')}. Point *.${config.baseDomain} to this server. A separate domain (HOSTX_BASE_DOMAIN=yourapps.app, like onrender.com) is safer.`,
+    );
+  }
+  const domainProblem = sharedDomainProblem();
+  if (domainProblem) {
+    if (config.isProduction && !config.allowSharedDomain) throw new Error(domainProblem);
+    logger.warn(domainProblem);
+  }
   await AuthService.init();
   Vault.init(AuthService.deriveKey('hostx-secrets-at-rest'));
   await Store.init();
   await RunnerService.init();
 
+  await DeployService.recoverStatuses();
+
   const router = new Router();
   registerAuthRoutes(router);
   registerDeployRoutes(router);
   registerAdminRoutes(router);
+  registerBillingRoutes(router);
+  registerSupportRoutes(router);
 
   // Control plane: dashboard talks to this API (register, login, deploy, logs...).
   const apiServer = createApiServer(router, (req) => AuthService.authenticate(req));
@@ -40,24 +67,37 @@ async function main(): Promise<void> {
   proxyServer.headersTimeout = 30_000;
 
   apiServer.listen(config.apiPort, config.apiHost, () => logger.info(`[HostX API]   http://${config.apiHost}:${config.apiPort}`));
-  proxyServer.listen(config.proxyPort, () => {
+  proxyServer.listen(config.proxyPort, config.proxyHost, () => {
     logger.info(`[HostX Proxy] ${projectUrl('<app>')}  (listening on :${config.proxyPort})`);
   });
 
-  void DeployService.recover().then(() => AutoDeployService.start());
+  void DeployService.recover().then(() => {
+    AutoDeployService.start();
+    MonitorService.start();
+    DomainService.start();
+    BackupService.start();
+    StorageMonitorService.start();
+    InactivityService.start();
+  });
 
   // Deployed apps are detached from HostX, so stopping the engine never takes them down.
   const shutdown = () => {
     logger.info('Shutting down HostX (deployed apps keep running)...');
     apiServer.close();
     proxyServer.close();
-    setTimeout(() => process.exit(0), 500).unref();
+    void InactivityService.flush().catch(() => undefined); // keep the visit times seen since the last save
+    setTimeout(() => {
+      Db.close(); // checkpoints the WAL into the main file
+      process.exit(0);
+    }, 500).unref();
   };
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 }
 
 process.on('unhandledRejection', (reason) => logger.error('Unhandled rejection', reason));
+// Last line of defence: one bad event (e.g. an I/O error on a stream) must not take down the proxy for every app.
+process.on('uncaughtException', (err) => logger.error('Uncaught exception (engine keeps running)', err));
 
 main().catch((err) => {
   logger.error(`HostX failed to start: ${(err as Error).message}`);

@@ -2,6 +2,7 @@ import { config } from '../config/index.js';
 import { exec } from '../utils/exec.js';
 import { logger } from '../utils/logger.js';
 import { DeployService } from './deploy.service.js';
+import { GitHubService } from './github.service.js';
 import { Store, type Project } from './store.service.js';
 
 const RETRY_AFTER_FAILURE_MS = 5 * 60 * 1000;
@@ -10,7 +11,8 @@ const RETRY_AFTER_FAILURE_MS = 5 * 60 * 1000;
 async function remoteHead(project: Project): Promise<string | null> {
   const ref = project.branch ? `refs/heads/${project.branch}` : 'HEAD';
   try {
-    const { code, stdout } = await exec('git', ['ls-remote', project.repoUrl, ref], { timeoutMs: 20_000 });
+    const env = await GitHubService.gitEnv(project.githubInstallationId);
+    const { code, stdout } = await exec('git', ['ls-remote', project.repoUrl, ref], { timeoutMs: 20_000, ...(env ? { env } : {}) });
     if (code !== 0) return null;
     return /^([0-9a-f]{40})\s/.exec(stdout)?.[1] ?? null;
   } catch {
@@ -20,7 +22,8 @@ async function remoteHead(project: Project): Promise<string | null> {
 
 /** Commit that the project's most recent deployment attempt built (or tried to build). */
 function lastKnownCommit(project: Project): string | null {
-  return Store.deploymentsOf(project.id).find((d) => d.commit)?.commit ?? project.commit;
+  // lastRemoteCommit, not the live commit: after a rollback the older commit is live on purpose.
+  return project.lastRemoteCommit ?? Store.deploymentsOf(project.id).find((d) => d.commit && d.trigger !== 'rollback')?.commit ?? project.commit;
 }
 
 export class AutoDeployService {
@@ -42,7 +45,7 @@ export class AutoDeployService {
     try {
       const heads = new Map<string, Promise<string | null>>();
       for (const project of [...Store.allProjects()]) {
-        if (!project.autoDeploy || project.status === 'deploying' || project.status === 'stopped') continue;
+        if (!project.autoDeploy || project.status === 'deploying' || project.status === 'stopped' || project.status === 'suspended') continue;
         const known = lastKnownCommit(project);
         if (!known) continue;
 
@@ -51,7 +54,7 @@ export class AutoDeployService {
           continue; // do not hammer a build that just failed
         }
 
-        const key = `${project.repoUrl}#${project.branch ?? ''}`;
+        const key = `${project.repoUrl}#${project.branch ?? ''}#${project.githubInstallationId ?? ''}`;
         if (!heads.has(key)) heads.set(key, remoteHead(project));
         const head = await heads.get(key);
         if (!head || head.startsWith(known)) continue;

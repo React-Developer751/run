@@ -1,0 +1,46 @@
+import type { Metadata } from 'next';
+import { LegalPage } from '@/components/LegalPage';
+import { pageMetadata } from '@/lib/site';
+import { getLegal, getSiteName } from '@/lib/brand';
+
+export async function generateMetadata(): Promise<Metadata> {
+  const siteName = await getSiteName();
+  return pageMetadata({
+    title: 'Contact us',
+    description: `How to reach the ${siteName} team for support, billing, abuse reports and grievances.`,
+    path: '/contact',
+    name: siteName,
+  });
+}
+
+export default async function ContactPage() {
+  const legal = await getLegal();
+  return (
+    <LegalPage title="Contact us">
+      <table>
+        <tbody>
+          <tr><th>Business</th><td>{legal.company}</td></tr>
+          <tr><th>Address</th><td>{legal.address}</td></tr>
+          <tr><th>Support &amp; billing</th><td><a href={`mailto:${legal.email}`}>{legal.email}</a></td></tr>
+          <tr><th>Phone</th><td>{legal.phone} (Mon–Fri, 10:00–18:00 IST)</td></tr>
+          <tr><th>Report abuse</th><td><a href={`mailto:${legal.abuseEmail}`}>{legal.abuseEmail}</a></td></tr>
+        </tbody>
+      </table>
+      <p>We reply to support emails within 2 business days.</p>
+      <p>Have an account? The fastest way is <a href="/support">Support</a> in your dashboard: mark a request as <b>Emergency</b> when a live app is down and every administrator is alerted at once.</p>
+
+      <h2>Grievance Officer</h2>
+      <p>
+        Under the Information Technology Act, 2000, its rules, and the Digital Personal Data Protection Act, 2023:
+      </p>
+      <table>
+        <tbody>
+          <tr><th>Name</th><td>{legal.grievanceOfficer}</td></tr>
+          <tr><th>Email</th><td><a href={`mailto:${legal.grievanceEmail}`}>{legal.grievanceEmail}</a></td></tr>
+          <tr><th>Address</th><td>{legal.address}</td></tr>
+        </tbody>
+      </table>
+      <p>Complaints are acknowledged within 24 hours and resolved within 15 days.</p>
+    </LegalPage>
+  );
+}

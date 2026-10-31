@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import type http from 'node:http';
 import { config } from '../config/index.js';
-import { HttpError, clientIp, parseCookies } from '../utils/http.js';
+import { HttpError, authCookieNames, clientIp, parseCookies, secureCookies } from '../utils/http.js';
 import { AuthService } from './auth.service.js';
 import { Store, type User } from './store.service.js';
 
@@ -10,12 +10,6 @@ const REUSE_GRACE_MS = 10_000;
 
 const hash = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
 
-function secureCookies(req: http.IncomingMessage): boolean {
-  if (config.cookieSecure === 'true') return true;
-  if (config.cookieSecure === 'false') return false;
-  return config.isProduction || (config.trustProxy && req.headers['x-forwarded-proto'] === 'https');
-}
-
 function cookie(name: string, value: string, maxAge: number, path: string, secure: boolean): string {
   return `${name}=${encodeURIComponent(value)}; Max-Age=${maxAge}; Path=${path}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
 }
@@ -23,16 +17,18 @@ function cookie(name: string, value: string, maxAge: number, path: string, secur
 export class SessionService {
   private static setCookies(req: http.IncomingMessage, res: http.ServerResponse, access: string, refresh: string): void {
     const secure = secureCookies(req);
+    const names = authCookieNames(req);
     res.setHeader('Set-Cookie', [
-      cookie(config.accessCookie, access, config.accessTtlSeconds, '/', secure),
-      // The refresh token is only ever sent to the auth endpoints.
-      cookie(config.refreshCookie, refresh, config.refreshTtlSeconds, '/api/auth', secure),
+      cookie(names.access, access, config.accessTtlSeconds, '/', secure),
+      // __Host- cookies must use Path=/; over plain http the refresh token is only ever sent to the auth endpoints.
+      cookie(names.refresh, refresh, config.refreshTtlSeconds, secure ? '/' : '/api/auth', secure),
     ]);
   }
 
   static clearCookies(req: http.IncomingMessage, res: http.ServerResponse): void {
     const secure = secureCookies(req);
-    res.setHeader('Set-Cookie', [cookie(config.accessCookie, '', 0, '/', secure), cookie(config.refreshCookie, '', 0, '/api/auth', secure)]);
+    const names = authCookieNames(req);
+    res.setHeader('Set-Cookie', [cookie(names.access, '', 0, '/', secure), cookie(names.refresh, '', 0, secure ? '/' : '/api/auth', secure)]);
   }
 
   private static async issue(user: User, familyId: string, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -64,7 +60,7 @@ export class SessionService {
       this.clearCookies(req, res);
       throw new HttpError(401, message);
     };
-    const raw = parseCookies(req.headers.cookie)[config.refreshCookie];
+    const raw = parseCookies(req.headers.cookie)[authCookieNames(req).refresh];
     if (!raw) return fail('Please sign in to continue');
 
     const row = Store.findSessionByHash(hash(raw));
@@ -93,7 +89,7 @@ export class SessionService {
 
   /** Logout of this browser. */
   static async end(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    const raw = parseCookies(req.headers.cookie)[config.refreshCookie];
+    const raw = parseCookies(req.headers.cookie)[authCookieNames(req).refresh];
     const row = raw ? Store.findSessionByHash(hash(raw)) : undefined;
     if (row) await Store.revokeFamily(row.familyId);
     this.clearCookies(req, res);

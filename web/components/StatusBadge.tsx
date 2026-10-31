@@ -9,6 +9,10 @@ const META: Record<ProjectStatus | DeploymentStatus, { label: string; tone: 'liv
   starting: { label: 'Starting', tone: 'busy' },
   failed: { label: 'Failed', tone: 'bad' },
   stopped: { label: 'Stopped', tone: 'idle' },
+  crashed: { label: 'Crashed', tone: 'bad' },
+  paused: { label: 'Paused', tone: 'idle' },
+  archived: { label: 'Archived', tone: 'idle' },
+  suspended: { label: 'Suspended', tone: 'bad' },
 };
 
 export const isBusy = (s: ProjectStatus | DeploymentStatus) => META[s].tone === 'busy';

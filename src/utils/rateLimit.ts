@@ -15,6 +15,12 @@ export class RateLimiter {
     private readonly message = 'Too many attempts. Please try again in a few minutes.',
   ) {}
 
+  /** Throws if `key` is already over the limit, without counting this attempt. */
+  check(key: string): void {
+    const bucket = this.buckets.get(key);
+    if (bucket && bucket.resetAt > Date.now() && bucket.count >= this.max) throw new HttpError(429, this.message);
+  }
+
   hit(key: string): void {
     const now = Date.now();
     const bucket = this.buckets.get(key);

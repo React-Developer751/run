@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 export const metadata: Metadata = {
   title: 'New deployment',
-  description: 'Deploy a public GitHub repository with HostX.',
+  description: 'Deploy a GitHub repository.',
   robots: { index: false, follow: false },
 };
 

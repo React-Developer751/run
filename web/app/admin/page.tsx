@@ -3,6 +3,7 @@
 import { api } from '@/lib/api';
 import { bytes, duration } from '@/lib/format';
 import { usePoll } from '@/lib/hooks';
+import { useSiteName } from '@/components/BrandProvider';
 
 function Meter({ label, used, total, text, calm }: { label: string; used: number; total: number; text: string; calm?: boolean }) {
   const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
@@ -15,6 +16,7 @@ function Meter({ label, used, total, text, calm }: { label: string; used: number
 }
 
 export default function AdminOverview() {
+  const siteName = useSiteName();
   const { data: s, error } = usePoll(() => api.admin.stats(), 8000);
   if (error && !s) return <div className="error-box">{error}</div>;
   if (!s) return <div className="center-screen"><span className="spinner" /></div>;
@@ -29,14 +31,14 @@ export default function AdminOverview() {
       <div className="page-head" style={{ marginBottom: 0 }}>
         <div>
           <h1>Platform <span className="serif grad-text">overview</span></h1>
-          <p>Live status of everything running on this HostX server.</p>
+          <p>Live status of everything running on this {siteName} server.</p>
         </div>
         <span className={`chip ${platform.runner === 'docker' ? '' : 'warn'}`}><i className="dot" />{platform.runner === 'docker' ? 'Docker isolated' : 'Dev mode (no isolation)'}</span>
       </div>
 
       <div className="kpis">
         <div className="card stat"><span>Users</span><b>{users.total}</b><small>{users.admins} admin · {users.suspended} suspended · +{users.newLast7d} this week</small></div>
-        <div className="card stat"><span>Projects</span><b>{projects.total}</b><small><em className="ok">{projects.live} live</em> · {projects.deploying} building · <em className="bad">{projects.failed} failed</em> · {projects.stopped} stopped</small></div>
+        <div className="card stat"><span>Projects</span><b>{projects.total}</b><small><em className="ok">{projects.live} live</em> · {projects.deploying} building · <em className="bad">{projects.failed + projects.crashed} failed/crashed</em> · {projects.stopped} stopped · {projects.paused} paused · {projects.archived} archived{projects.suspended ? <> · <em className="bad">{projects.suspended} suspended</em></> : null}</small></div>
         <div className="card stat"><span>Deployments (24h)</span><b>{deployments.last24h}</b><small>{deployments.auto24h} auto-deploys · {deployments.total} all time</small></div>
         <div className="card stat"><span>Failure rate (24h)</span><b style={{ color: failRate > 25 ? 'var(--bad)' : undefined }}>{failRate}%</b><small>{deployments.failed24h} failed of {deployments.last24h}</small></div>
       </div>
@@ -53,7 +55,7 @@ export default function AdminOverview() {
                     {d.failed > 0 && <div className="bar-fail" style={{ height: `${(d.failed / d.total) * 100}%` }} />}
                   </div>
                 </div>
-                <span className="bar-label">{new Date(d.date).toLocaleDateString(undefined, { weekday: 'short' })}</span>
+                <span className="bar-label">{new Date(`${d.date}T00:00`).toLocaleDateString(undefined, { weekday: 'short' })}</span>
               </div>
             ))}
           </div>
