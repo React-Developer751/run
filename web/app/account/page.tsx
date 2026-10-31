@@ -6,12 +6,14 @@ import { Nav } from '@/components/Nav';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useRequireAuth } from '@/lib/auth';
-import type { GitHubStatus } from '@/lib/types';
+import type { BillingInfo, GitHubStatus } from '@/lib/types';
 import { GITHUB_RESULT } from '@/lib/github-result';
 import { PasswordInput } from '@/components/PasswordInput';
 import { useSiteName } from '@/components/BrandProvider';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 function GitHubCard() {
+  const confirm = useConfirm();
   const siteName = useSiteName();
   const { reload } = useAuth();
   const [status, setStatus] = useState<GitHubStatus | null>(null);
@@ -51,7 +53,7 @@ function GitHubCard() {
               className="btn btn-danger"
               disabled={busy}
               onClick={async () => {
-                if (!window.confirm(`Disconnect GitHub from ${siteName}? Existing projects keep deploying until you uninstall the app on GitHub.`)) return;
+                if (!(await confirm({ title: 'Disconnect GitHub?', message: `${siteName} stops seeing your repositories. Existing projects keep deploying until you uninstall the app on GitHub.`, confirmLabel: 'Disconnect', danger: true }))) return;
                 setBusy(true);
                 await api.github.unlink().catch((e: Error) => setResult({ ok: false, text: e.message }));
                 setStatus(await api.github.status().catch(() => null));
@@ -74,22 +76,39 @@ function GitHubCard() {
 }
 
 function DeleteAccountCard() {
-  const router = useRouter();
-  const { signOut } = useAuth();
+  const confirm = useConfirm();
+  const [billing, setBilling] = useState<BillingInfo | null>(null);
   const [open, setOpen] = useState(false);
   const [password, setPassword] = useState('');
   const [confirmText, setConfirmText] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
+  // What the user loses besides the apps: a paid period (not refunded) and a UPI payment still being verified.
+  useEffect(() => {
+    if (open) api.billing.me().then(setBilling).catch(() => setBilling(null));
+  }, [open]);
+  const paidUntil = billing?.upi.paidUntil ?? (billing?.subscription && ['active', 'pending', 'cancelling'].includes(billing.subscription.status) ? billing.subscription.currentPeriodEnd : null);
+  const paidPlan = billing && billing.plan !== 'free' ? billing.plan : null;
+  const pendingUpi = billing?.upi.payments.find((p) => p.status === 'pending') ?? null;
+
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    const ok = await confirm({
+      title: 'Delete your account permanently?',
+      message: `Every app goes offline and is deleted together with its environment variables, domains and logs${paidPlan ? `; your ${paidPlan} plan ends now and the unused days are not refunded` : ''}. This cannot be undone.`,
+      confirmLabel: 'Delete my account',
+      cancelLabel: 'Keep my account',
+      danger: true,
+    });
+    if (!ok) return;
     setBusy(true);
     setError('');
     try {
       await api.deleteAccount(password);
-      await signOut();
-      router.replace('/?deleted=1');
+      // Full page load: the server already cleared the sign-in cookies, and signing out in-app first would let the
+      // "must be signed in" guard redirect to /login before this runs.
+      window.location.replace('/?deleted=1');
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -109,6 +128,16 @@ function DeleteAccountCard() {
         <div><button className="btn btn-danger" onClick={() => setOpen(true)}>Delete my account…</button></div>
       ) : (
         <form className="stack" onSubmit={submit}>
+          {paidPlan && (
+            <div className="error-box">
+              You are on the paid <b>{paidPlan}</b> plan{paidUntil ? ` until ${new Date(paidUntil).toLocaleDateString()}` : ''}. Deleting the account ends it immediately{billing?.subscription ? ' and cancels the subscription' : ''}; unused days are not refunded (see the Refund Policy).
+            </div>
+          )}
+          {pendingUpi && (
+            <div className="error-box">
+              A UPI payment of ₹{pendingUpi.amountInr} (UTR {pendingUpi.utr}) is still being verified. After deleting, contact support with the UTR to get it refunded.
+            </div>
+          )}
           <div className="field">
             <label className="label" htmlFor="del-pw">Your password</label>
             <PasswordInput id="del-pw" className="input" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
@@ -130,6 +159,7 @@ function DeleteAccountCard() {
 }
 
 export default function AccountPage() {
+  const ask = useConfirm();
   const user = useRequireAuth();
   const { signOut } = useAuth();
   const router = useRouter();
@@ -218,6 +248,8 @@ export default function AccountPage() {
                 className="btn btn-danger"
                 disabled={everywhereBusy}
                 onClick={async () => {
+                  const ok = await ask({ title: 'Sign out everywhere?', message: 'You are signed out of every browser and device, including this one. You will need your password (or GitHub) to sign in again.', confirmLabel: 'Sign out everywhere', danger: true });
+                  if (!ok) return;
                   setEverywhereBusy(true);
                   await api.logoutAll().catch(() => undefined);
                   await signOut();

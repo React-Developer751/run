@@ -9,10 +9,12 @@ import { api } from '@/lib/api';
 import { repoLabel, timeAgo } from '@/lib/format';
 import { usePoll, useToast } from '@/lib/hooks';
 import type { AdminProject, ProjectStatus } from '@/lib/types';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 const FILTERS: Array<ProjectStatus | 'all'> = ['all', 'live', 'deploying', 'crashed', 'failed', 'stopped', 'paused', 'archived', 'suspended'];
 
 export default function AdminProjects() {
+  const confirm = useConfirm();
   const { data, error, reload } = usePoll(() => api.admin.projects(), 6000);
   const { toast, flash } = useToast();
   const [q, setQ] = useState('');
@@ -87,7 +89,7 @@ export default function AdminProjects() {
                       <button
                         className="btn btn-sm"
                         disabled={busy !== ''}
-                        onClick={() => window.confirm(`Lift the suspension of "${p.name}"? It starts again if it was deployed, and the owner is emailed.`) && void act(`u${p.id}`, () => api.admin.unsuspendProject(p.id), 'Suspension lifted')}
+                        onClick={async () => (await confirm({ title: `Unsuspend ${p.name}?`, message: 'It starts again if it was deployed, and the owner is emailed.', confirmLabel: 'Unsuspend' })) && void act(`u${p.id}`, () => api.admin.unsuspendProject(p.id), 'Suspension lifted')}
                       >
                         Unsuspend
                       </button>
@@ -103,8 +105,9 @@ export default function AdminProjects() {
                     {(p.status === 'live' || p.status === 'crashed') && (
                       <button className="icon-btn" title="Stop" aria-label="Stop" disabled={busy !== ''} onClick={() => act(`o${p.id}`, () => api.admin.stopProject(p.id), 'Stopped')}><Icon name="stop" /></button>
                     )}
-                    <button className="icon-btn" aria-label={`Delete ${p.name}`} disabled={busy !== '' || p.status === 'deploying'} onClick={() => {
-                      if (window.confirm(`Delete "${p.name}" owned by ${p.owner.email}? This cannot be undone.`)) void act(`x${p.id}`, () => api.admin.deleteProject(p.id), 'Project deleted');
+                    <button className="icon-btn" aria-label={`Delete ${p.name}`} disabled={busy !== '' || p.status === 'deploying'} onClick={async () => {
+                      const ok = await confirm({ title: `Delete ${p.name}?`, message: `Owned by ${p.owner.email}. The app, its deployments, logs and domains are deleted permanently.`, confirmLabel: 'Delete project', danger: true });
+                      if (ok) void act(`x${p.id}`, () => api.admin.deleteProject(p.id), 'Project deleted');
                     }}><Icon name="trash" /></button>
                   </div>
                 </td>

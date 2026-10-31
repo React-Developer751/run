@@ -18,6 +18,7 @@ import type { BuildConfig, Deployment, Project, ProjectEvent } from '@/lib/types
 import { FeedbackPrompt } from '@/components/FeedbackPrompt';
 import { useSiteName } from '@/components/BrandProvider';
 import { brandSlug } from '@/lib/site';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 const EVENT_ICON: Record<ProjectEvent['kind'], string> = { crash: '🔴', restart: '🟠', recovered: '🟢', rollback: '↩️', paused: '⏸️', archived: '📦' };
 
@@ -62,7 +63,7 @@ function BuildLogs({ projectId, deployment, onFinished }: { projectId: string; d
       } catch (e) {
         // 4xx (deleted, not yours, signed out) will not fix itself: stop polling and say why.
         const status = (e as { status?: number }).status ?? 0;
-        if (status >= 400 && status < 500) {
+        if (status >= 400 && status < 500 && status !== 429) {
           if (!cancelled) setLines((prev) => [...prev, `[${brandSlug(siteName)}] Could not load the log: ${(e as Error).message}`]);
           return;
         }
@@ -81,6 +82,7 @@ function BuildLogs({ projectId, deployment, onFinished }: { projectId: string; d
 }
 
 export default function ProjectPage() {
+  const confirm = useConfirm();
   const siteName = useSiteName();
   const user = useRequireAuth();
   const router = useRouter();
@@ -193,8 +195,13 @@ export default function ProjectPage() {
     }
   };
 
-  const rollback = (d: Deployment) => {
-    if (!window.confirm(`Put the version from ${timeAgo(d.createdAt)}${d.commit ? ` (commit ${d.commit})` : ''} back live? It uses your current environment variables. Nothing is rebuilt.`)) return;
+  const rollback = async (d: Deployment) => {
+    const ok = await confirm({
+      title: 'Roll back to this version?',
+      message: `The version from ${timeAgo(d.createdAt)}${d.commit ? ` (commit ${d.commit})` : ''} goes live again with your current environment variables. Nothing is rebuilt; the current version stops after the switch.`,
+      confirmLabel: 'Roll back',
+    });
+    if (!ok) return;
     void act('rollback', async () => {
       const r = await api.rollback(id, d.id);
       setSelected(r.deployment.id);
@@ -251,7 +258,15 @@ export default function ProjectPage() {
                 {busy === 'start' ? <span className="spinner" /> : <Icon name="play" />} {project.status === 'crashed' ? 'Restart' : project.status === 'paused' ? 'Resume' : 'Start'}
               </button>
             ) : project.status === 'archived' ? null : (
-              <button className="btn" disabled={deploying || busy !== '' || project.status === 'failed'} onClick={() => act('stop', () => api.stop(id), 'App stopped')}>
+              <button
+                className="btn"
+                disabled={deploying || busy !== '' || project.status === 'failed'}
+                onClick={async () => {
+                  if (await confirm({ title: `Stop ${project.name}?`, message: 'Visitors see an "app unavailable" page until you start it again. Nothing is deleted.', confirmLabel: 'Stop app' })) {
+                    void act('stop', () => api.stop(id), 'App stopped');
+                  }
+                }}
+              >
                 {busy === 'stop' ? <span className="spinner" /> : <Icon name="stop" />} Stop
               </button>
             )}
@@ -533,7 +548,13 @@ export default function ProjectPage() {
                   className="btn btn-danger"
                   disabled={busy !== ''}
                   onClick={async () => {
-                    if (!window.confirm(`Delete "${project.name}"? This cannot be undone.`)) return;
+                    const ok = await confirm({
+                      title: `Delete ${project.name}?`,
+                      message: 'The app goes offline and its deployments, logs, environment variables and custom domains are deleted permanently. Your GitHub repository is not touched.',
+                      confirmLabel: 'Delete permanently',
+                      danger: true,
+                    });
+                    if (!ok) return;
                     setBusy('delete');
                     try {
                       await api.remove(id);

@@ -10,6 +10,7 @@ import { timeAgo } from '@/lib/format';
 import { usePoll } from '@/lib/hooks';
 import type { Project, Ticket, TicketCategory } from '@/lib/types';
 import { useSiteName } from '@/components/BrandProvider';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 const CATEGORIES = Object.keys(CATEGORY_LABEL) as TicketCategory[];
 
@@ -87,6 +88,7 @@ function NewRequest({ projects, onCreated, onCancel }: { projects: Project[]; on
 }
 
 export default function SupportPage() {
+  const confirm = useConfirm();
   const siteName = useSiteName();
   const user = useRequireAuth();
   const { data, error, reload } = usePoll(() => api.support.tickets(), 20_000, Boolean(user));
@@ -217,6 +219,7 @@ export default function SupportPage() {
                           <button
                             className="btn"
                             onClick={async () => {
+                              if (!(await confirm({ title: 'Mark this request as solved?', message: 'It is closed. If the problem comes back, just write again and it reopens.', confirmLabel: 'Mark as solved' }))) return;
                               try {
                                 setTicket((await api.support.close(ticket.id)).ticket);
                                 void reload();

@@ -40,7 +40,7 @@ export class GitHubController {
   static login(ctx: Ctx) {
     if (!GitHubService.enabled()) return redirect(ctx, `${config.dashboardUrl}/login?github=disabled`);
     try {
-      loginLimiter.hit(`gh-login:${ctx.ip}`);
+      loginLimiter.hit(`gh-login:${ctx.ipKey}`);
     } catch {
       return redirect(ctx, `${config.dashboardUrl}/login?github=rate-limited`);
     }
@@ -114,7 +114,7 @@ export class GitHubController {
 
   /** The GitHub App's single webhook: pushes to any connected repo, and app uninstalls. */
   static async webhook(ctx: Ctx) {
-    limiter.hit(`gh-webhook:${ctx.ip}`);
+    limiter.hit(`gh-webhook:${ctx.ipKey}`);
     const body = await ctx.raw();
     if (!GitHubService.verifyWebhook(body, ctx.headers['x-hub-signature-256'] as string | undefined)) {
       throw new HttpError(401, 'Invalid webhook signature');

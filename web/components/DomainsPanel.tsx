@@ -5,9 +5,11 @@ import { api } from '@/lib/api';
 import { timeAgo } from '@/lib/format';
 import type { Project } from '@/lib/types';
 import { Icon } from './Icon';
+import { useConfirm } from './ConfirmProvider';
 
 /** Custom domains of one project: add, DNS instructions, verify, remove. */
 export function DomainsPanel({ project, onChange, flash }: { project: Project; onChange: (p: Project) => void; flash: (msg: string) => void }) {
+  const confirm = useConfirm();
   const [domain, setDomain] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
@@ -70,7 +72,7 @@ export function DomainsPanel({ project, onChange, flash }: { project: Project; o
               <button
                 className="btn btn-sm btn-danger"
                 disabled={busy !== ''}
-                onClick={() => window.confirm(`Remove ${d.name}? It stops serving this app immediately.`) && run(`r${d.name}`, () => api.removeDomain(project.id, d.name), 'Domain removed')}
+                onClick={async () => (await confirm({ title: `Remove ${d.name}?`, message: 'It stops serving this app immediately. You can add it again later (DNS verification is needed again).', confirmLabel: 'Remove domain', danger: true })) && run(`r${d.name}`, () => api.removeDomain(project.id, d.name), 'Domain removed')}
               >
                 <Icon name="trash" /> Remove
               </button>

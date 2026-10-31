@@ -103,10 +103,39 @@ export function razorpayPlanId(id: PlanId): string {
   return overrides[id]?.razorpayPlanId || config.razorpay.planIds[id];
 }
 
-/** Plans and their limits apply only once Razorpay is configured; a private self-hosted install is unaffected. */
-export function billingEnabled(): boolean {
+/** How users can pay. Admin → Settings → Payment methods; set by the Store on load and save. */
+export interface PaymentSettings {
+  /** Razorpay checkout offered (needs the keys and plan ids too). */
+  razorpayEnabled: boolean;
+  /** Direct UPI: user pays to this UPI ID, enters the UTR, an admin approves. */
+  upi: { enabled: boolean; vpa: string; payeeName: string; note: string };
+}
+export const DEFAULT_PAYMENTS: PaymentSettings = { razorpayEnabled: true, upi: { enabled: false, vpa: '', payeeName: '', note: '' } };
+let payments: PaymentSettings = DEFAULT_PAYMENTS;
+export function setPaymentSettings(next: Partial<PaymentSettings> | null | undefined): void {
+  payments = { ...DEFAULT_PAYMENTS, ...(next ?? {}), upi: { ...DEFAULT_PAYMENTS.upi, ...(next?.upi ?? {}) } };
+}
+export function paymentSettings(): PaymentSettings {
+  return payments;
+}
+
+/** Razorpay keys, webhook secret and at least one plan id are configured on the server. */
+export function razorpayReady(): boolean {
   const r = config.razorpay;
   return Boolean(r.keyId && r.keySecret && r.webhookSecret && (razorpayPlanId('starter') || razorpayPlanId('pro')));
+}
+/** Razorpay checkout is offered to users (configured and switched on by the admin). */
+export function razorpayActive(): boolean {
+  return payments.razorpayEnabled && razorpayReady();
+}
+/** Direct UPI payments are offered (switched on, with a UPI ID). */
+export function upiActive(): boolean {
+  return payments.upi.enabled && Boolean(payments.upi.vpa) && Boolean(payments.upi.payeeName);
+}
+
+/** Paid plans exist (some way to pay is on); otherwise a private self-hosted install has no plan limits. */
+export function billingEnabled(): boolean {
+  return razorpayActive() || upiActive();
 }
 
 export const isPlanId = (v: unknown): v is PlanId => typeof v === 'string' && (PLAN_IDS as string[]).includes(v);

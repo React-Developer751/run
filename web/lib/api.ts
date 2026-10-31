@@ -1,4 +1,4 @@
-import type { AdminFeedback, AdminTicket, AdminTicketSummary, Feedback, Rating, Testimonial, Ticket, TicketCategory, TicketSummary, SettingsPatch, AdminNotification, StorageReport, AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
+import type { Profile, AdminUpiPayment, UpiPaymentRow, AdminFeedback, AdminTicket, AdminTicketSummary, Feedback, Rating, Testimonial, Ticket, TicketCategory, TicketSummary, SettingsPatch, AdminNotification, StorageReport, AdminDeployment, AdminProject, AdminStats, AdminUser, AuditEntry, BillingInfo, BuildConfig, Deployment, GitHubRepo, Plan, PlanId, ProjectEvent, GitHubStatus, PlatformSettings, Health, Project, ScanFolder, User } from './types';
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 /** Engine URL, for full-page navigations such as "Continue with GitHub". */
@@ -83,11 +83,14 @@ export const api = {
   scan: (repoUrl: string, branch?: string, githubInstallationId?: number) =>
     request<{ repoName: string; folders: ScanFolder[] }>('/api/scan', 'POST', { repoUrl, branch: branch || undefined, githubInstallationId }),
 
+  profile: () => request<Profile>('/api/auth/profile'),
+  updateName: (name: string) => request<{ user: User }>('/api/auth/me', 'PATCH', { name }),
   billing: {
     plans: () => request<{ enabled: boolean; plans: Plan[] }>('/api/billing/plans'),
     me: () => request<BillingInfo>('/api/billing'),
     subscribe: (plan: PlanId) => request<{ url: string | null; changed: boolean }>('/api/billing/subscribe', 'POST', { plan }),
     cancel: () => request<{ ok: true }>('/api/billing/cancel', 'POST', {}),
+    payByUpi: (plan: PlanId, utr: string) => request<{ payment: UpiPaymentRow }>('/api/billing/upi', 'POST', { plan, utr }),
   },
 
   github: {
@@ -146,6 +149,9 @@ export const api = {
     readNotifications: (ids?: string[]) => request<{ marked: number }>('/api/admin/notifications/read', 'POST', ids ? { ids } : {}),
     storage: () => request<StorageReport>('/api/admin/storage'),
     checkStorage: () => request<StorageReport>('/api/admin/storage/check', 'POST', {}),
+    payments: () => request<{ payments: AdminUpiPayment[]; pending: number }>('/api/admin/payments'),
+    approvePayment: (id: string) => request<{ payment: AdminUpiPayment }>(`/api/admin/payments/${id}/approve`, 'POST', {}),
+    rejectPayment: (id: string, reason: string) => request<{ payment: AdminUpiPayment }>(`/api/admin/payments/${id}/reject`, 'POST', { reason }),
     feedback: () => request<{ feedback: AdminFeedback[]; average: number | null; featured: number }>('/api/admin/feedback'),
     featureFeedback: (id: string, featured: boolean) => request<{ feedback: Feedback }>(`/api/admin/feedback/${id}`, 'PATCH', { featured }),
     deleteFeedback: (id: string) => request<{ ok: true }>(`/api/admin/feedback/${id}`, 'DELETE'),

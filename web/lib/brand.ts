@@ -1,5 +1,6 @@
 // Server-side only (uses Next's fetch cache).
 import { DEFAULT_SITE_NAME, legalFrom, type BusinessDetails } from './site';
+import type { Plan } from './types';
 
 /** Engine address for server-side fetches (same machine in production; the public URL works too). */
 const API = process.env.HOSTX_INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -55,13 +56,44 @@ export async function getLegal() {
   return legalFrom(await getBusiness());
 }
 
-/** Fingerprint of the current values straight from the engine, bypassing the cache. */
+export interface PlansInfo {
+  /** Paid plans can be bought (some payment method is on). */
+  enabled: boolean;
+  methods: { razorpay: boolean; upi: boolean };
+  /** Plans offered right now (free + paid ones with a way to pay). */
+  plans: Plan[];
+}
+
+async function plansFrom(init: RequestInit & { next?: { revalidate: number; tags: string[] } }): Promise<PlansInfo | null> {
+  try {
+    const r = await fetch(`${API}/api/billing/plans`, init);
+    if (!r.ok) return null;
+    const d = (await r.json()) as { enabled: boolean; methods?: PlansInfo['methods']; plans: Array<Plan & { available: boolean }> };
+    return { enabled: d.enabled, methods: d.methods ?? { razorpay: false, upi: false }, plans: d.plans.filter((p) => p.available) };
+  } catch {
+    return null;
+  }
+}
+
+/** Plans and payment methods for the public pages (pricing, landing). Same cache and refresh as the name. */
+export async function getPlansInfo(): Promise<PlansInfo | null> {
+  return plansFrom({ next: { revalidate: 60, tags: [SITE_NAME_TAG] } });
+}
+
+/** "card, UPI AutoPay or netbanking (Razorpay) or direct UPI", or null when nothing can be bought. */
+export function paymentWording(methods: PlansInfo['methods']): string | null {
+  const parts = [methods.razorpay ? 'UPI AutoPay, cards or netbanking through Razorpay' : '', methods.upi ? 'a direct UPI transfer' : ''].filter(Boolean);
+  return parts.length ? parts.join(', or ') : null;
+}
+
+/** Fingerprint of everything admin-controlled that public pages show, straight from the engine (no cache). */
 export async function freshPublicInfo(): Promise<string | null> {
   try {
     const r = await fetch(`${API}/api/health`, { cache: 'no-store' });
     if (!r.ok) return null;
     const { siteName, business } = parse(await r.json());
-    return JSON.stringify({ siteName, business });
+    const plans = await plansFrom({ cache: 'no-store' });
+    return JSON.stringify({ siteName, business, plans });
   } catch {
     return null;
   }
@@ -69,5 +101,5 @@ export async function freshPublicInfo(): Promise<string | null> {
 
 export async function cachedPublicInfo(): Promise<string> {
   const { siteName, business } = await publicInfo();
-  return JSON.stringify({ siteName, business });
+  return JSON.stringify({ siteName, business, plans: await getPlansInfo() });
 }

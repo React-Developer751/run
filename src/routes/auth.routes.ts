@@ -8,6 +8,8 @@ export function registerAuthRoutes(router: Router): void {
   router.post('/api/auth/logout', AuthController.logout);
   router.post('/api/auth/logout-all', AuthController.logoutAll);
   router.get('/api/auth/me', AuthController.me);
+  router.patch('/api/auth/me', AuthController.updateMe);
+  router.get('/api/auth/profile', AuthController.profile);
   router.post('/api/auth/password', AuthController.changePassword);
   router.post('/api/auth/verify-email', AuthController.verifyEmail);
   router.post('/api/auth/resend-verification', AuthController.resendVerification);

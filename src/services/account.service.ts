@@ -1,6 +1,7 @@
 import { HttpError } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { BillingService } from './billing.service.js';
+import { MailService } from './mail.service.js';
 import { DeployService } from './deploy.service.js';
 import { Store, type User } from './store.service.js';
 
@@ -9,7 +10,7 @@ export class AccountService {
    * Permanently deletes an account and everything it owns: subscription (cancelled first, so a failed cancel never
    * leaves someone being charged for a deleted account), apps, images, domains, logs, sessions and tokens.
    */
-  static async delete(user: User): Promise<number> {
+  static async delete(user: User, byAdmin = false): Promise<number> {
     const projects = Store.projectsOf(user.id);
     if (projects.some((p) => p.status === 'deploying')) throw new HttpError(409, 'A deployment is in progress. Try again in a minute.');
     try {
@@ -22,6 +23,7 @@ export class AccountService {
     for (const p of projects) await DeployService.remove(p);
     await Store.deleteUser(user.id);
     logger.info(`Account ${user.email} deleted with ${projects.length} project(s)`);
+    void MailService.accountDeleted(user.email, user.name, byAdmin);
     return projects.length;
   }
 }

@@ -8,6 +8,7 @@ import { useToast } from '@/lib/hooks';
 import { PlanEditor } from '@/components/PlanEditor';
 import type { PlatformSettings, SettingsPatch } from '@/lib/types';
 import type { BusinessDetails } from '@/lib/site';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 const BUSINESS_FORM: Array<{ key: keyof BusinessDetails; label: string; placeholder: string; max: number; type?: string; hint?: string; wide?: boolean }> = [
   { key: 'company', label: 'Business name', placeholder: 'DeployKaro Technologies Pvt Ltd', max: 120 },
@@ -22,11 +23,13 @@ const BUSINESS_FORM: Array<{ key: keyof BusinessDetails; label: string; placehol
 const clean = (b: BusinessDetails) => Object.fromEntries(Object.entries(b).map(([k, v]) => [k, (v ?? '').trim()]).filter(([, v]) => v));
 
 export default function AdminSettings() {
+  const confirm = useConfirm();
   const { toast, flash } = useToast();
   const [settings, setSettings] = useState<PlatformSettings | null>(null);
   const [limit, setLimit] = useState('');
   const [siteName, setSiteName] = useState('');
   const [business, setBusiness] = useState<BusinessDetails>({});
+  const [upiForm, setUpiForm] = useState({ vpa: '', payeeName: '', note: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -38,6 +41,7 @@ export default function AdminSettings() {
         setLimit(String(r.settings.maxProjectsPerUser));
         setSiteName(r.settings.siteName);
         setBusiness(r.settings.business ?? {});
+        setUpiForm({ vpa: r.settings.payments.upi.vpa, payeeName: r.settings.payments.upi.payeeName, note: r.settings.payments.upi.note });
       })
       .catch((e: Error) => setError(e.message));
   }, []);
@@ -51,9 +55,13 @@ export default function AdminSettings() {
       setLimit(String(r.settings.maxProjectsPerUser));
       setSiteName(r.settings.siteName);
       setBusiness(r.settings.business ?? {});
+      setUpiForm({ vpa: r.settings.payments.upi.vpa, payeeName: r.settings.payments.upi.payeeName, note: r.settings.payments.upi.note });
       if (patch.siteName !== undefined || patch.business !== undefined) {
-        // This tab, every component reading them, and the server-rendered pages (landing, legal, contact, titles).
+        // This tab and every component reading them.
         window.dispatchEvent(new CustomEvent(SITE_NAME_EVENT, { detail: { siteName: r.settings.siteName, business: r.settings.business ?? {} } }));
+      }
+      // Server-rendered public pages (landing, pricing, legal, contact, titles) show name, business details, plans and payment methods.
+      if (patch.siteName !== undefined || patch.business !== undefined || patch.payments !== undefined || patch.plans !== undefined || patch.resetPlan !== undefined) {
         await refreshSiteName().catch(() => undefined);
       }
       flash(done);
@@ -104,12 +112,91 @@ export default function AdminSettings() {
           />
           <button className="btn btn-primary" disabled={busy || siteName.trim().length < 2 || siteName.trim() === settings.siteName}>Save</button>
           {settings.siteName !== settings.defaultSiteName && (
-            <button type="button" className="btn" disabled={busy} onClick={() => window.confirm(`Go back to "${settings.defaultSiteName}"?`) && void save({ siteName: null }, 'Website name reset')}>
+            <button type="button" className="btn" disabled={busy} onClick={async () => (await confirm({ title: `Go back to "${settings.defaultSiteName}"?`, message: 'The name changes everywhere: pages, emails and app status pages.', confirmLabel: 'Reset name' })) && void save({ siteName: null }, 'Website name reset')}>
               Reset to {settings.defaultSiteName}
             </button>
           )}
         </form>
         <span className="hint">2–40 characters: letters, numbers, spaces and . &amp; &apos; ! + _ -</span>
+      </div>
+
+      <div className="card stack">
+        <div>
+          <h3 className="card-title">Payment methods</h3>
+          <p className="muted" style={{ marginTop: 6, fontSize: 14 }}>
+            Users only see the methods switched on here. With both on, they choose. With both off, paid plans cannot be bought.
+          </p>
+        </div>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={settings.payments.razorpayEnabled}
+            disabled={busy}
+            onChange={async (e) => {
+              const on = e.target.checked;
+              if (!on && !(await confirm({ title: 'Switch Razorpay off?', message: 'Users can no longer start or switch subscriptions with Razorpay. Existing subscriptions keep renewing and can still be cancelled.', confirmLabel: 'Switch off', danger: true }))) return;
+              void save({ payments: { razorpayEnabled: on } }, on ? 'Razorpay switched on' : 'Razorpay switched off');
+            }}
+          />
+          <span>
+            <b>Razorpay — cards, UPI AutoPay, netbanking (renews automatically)</b>
+            <small>
+              {settings.razorpayReady
+                ? 'Configured on the server.'
+                : 'Not configured yet: needs HOSTX_RAZORPAY_* keys and a Razorpay plan id (Plans & limits). Users will not see it until then.'}
+            </small>
+          </span>
+        </label>
+        <div className="pay-method">
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.payments.upi.enabled}
+              disabled={busy}
+              onChange={async (e) => {
+                const on = e.target.checked;
+                if (!on && !(await confirm({ title: 'Switch UPI payments off?', message: 'Users can no longer pay by UPI. Payments already submitted stay in Admin → Payments for you to approve or reject, and active UPI plans run until their end date.', confirmLabel: 'Switch off', danger: true }))) return;
+                void save({ payments: { upi: { ...upiForm, enabled: on } } }, on ? 'UPI payments switched on' : 'UPI payments switched off');
+              }}
+            />
+            <span>
+              <b>Direct UPI — user pays to your UPI ID and enters the UTR; you approve it in Admin → Payments</b>
+              <small>No fees. One month per payment, no automatic renewal. {settings.pendingPayments > 0 && <a href="/admin/payments">{settings.pendingPayments} waiting for you →</a>}</small>
+            </span>
+          </label>
+          <form
+            className="stack"
+            style={{ marginTop: 12 }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              void save({ payments: { upi: upiForm } }, 'UPI details saved');
+            }}
+          >
+            <div className="grid-form">
+              <div className="field">
+                <label className="label" htmlFor="upi-vpa">Your UPI ID</label>
+                <input id="upi-vpa" className="input mono" placeholder="yourname@okicici" maxLength={100} value={upiForm.vpa} onChange={(e) => setUpiForm({ ...upiForm, vpa: e.target.value })} />
+              </div>
+              <div className="field">
+                <label className="label" htmlFor="upi-payee">Payee name (as in your bank)</label>
+                <input id="upi-payee" className="input" placeholder="DeployKaro Technologies" maxLength={60} value={upiForm.payeeName} onChange={(e) => setUpiForm({ ...upiForm, payeeName: e.target.value })} />
+              </div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label className="label" htmlFor="upi-note">Note for users (optional)</label>
+                <input id="upi-note" className="input" placeholder="Payments are verified within 2 hours (10 am – 8 pm)." maxLength={200} value={upiForm.note} onChange={(e) => setUpiForm({ ...upiForm, note: e.target.value })} />
+              </div>
+            </div>
+            <div className="row" style={{ flexWrap: 'wrap' }}>
+              <button
+                className="btn"
+                disabled={busy || (upiForm.vpa.trim() === settings.payments.upi.vpa && upiForm.payeeName.trim() === settings.payments.upi.payeeName && upiForm.note.trim() === settings.payments.upi.note)}
+              >
+                Save UPI details
+              </button>
+              <a className="btn" href="/admin/payments">Open Payments</a>
+            </div>
+          </form>
+        </div>
       </div>
 
       <form
@@ -174,7 +261,16 @@ export default function AdminSettings() {
       <div className="card stack">
         <h3 className="card-title">Registration</h3>
         <label className="check">
-          <input type="checkbox" checked={settings.allowSignup} disabled={busy} onChange={(e) => save({ allowSignup: e.target.checked }, e.target.checked ? 'Sign-ups opened' : 'Sign-ups closed')} />
+          <input
+            type="checkbox"
+            checked={settings.allowSignup}
+            disabled={busy}
+            onChange={async (e) => {
+              const on = e.target.checked;
+              if (!on && !(await confirm({ title: 'Close sign-ups?', message: 'Nobody can create a new account (email or GitHub). Existing users can still sign in.', confirmLabel: 'Close sign-ups' }))) return;
+              void save({ allowSignup: on }, on ? 'Sign-ups opened' : 'Sign-ups closed');
+            }}
+          />
           <span><b>Allow new sign-ups</b><small>Turn off once your own accounts exist to keep the server private. Existing users can still sign in.</small></span>
         </label>
       </div>

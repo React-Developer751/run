@@ -8,11 +8,13 @@ import { timeAgo } from '@/lib/format';
 import { usePoll, useToast } from '@/lib/hooks';
 import type { AdminTicket, TicketStatus } from '@/lib/types';
 import { useSiteName } from '@/components/BrandProvider';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 type Filter = 'active' | TicketStatus | 'emergency' | 'all';
 const FILTERS: Array<[Filter, string]> = [['active', 'Needs reply'], ['answered', 'Answered'], ['closed', 'Closed'], ['emergency', 'Emergency'], ['all', 'All']];
 
 export default function AdminSupport() {
+  const confirm = useConfirm();
   const siteName = useSiteName();
   const { data, error, reload } = usePoll(() => api.admin.tickets(), 15_000);
   const [filter, setFilter] = useState<Filter>('active');
@@ -159,7 +161,16 @@ export default function AdminSupport() {
                 extraActions={
                   ticket.status === 'closed'
                     ? <button className="btn" onClick={() => void setStatus('open')}>Reopen</button>
-                    : <button className="btn" onClick={() => void setStatus('closed')}>Close without reply</button>
+                    : (
+                      <button
+                        className="btn"
+                        onClick={async () => {
+                          if (await confirm({ title: 'Close without replying?', message: 'The request is marked closed; the user is not emailed. They can reopen it by writing again.', confirmLabel: 'Close request' })) void setStatus('closed');
+                        }}
+                      >
+                        Close without reply
+                      </button>
+                    )
                 }
               />
             </div>

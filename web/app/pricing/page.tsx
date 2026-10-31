@@ -1,28 +1,18 @@
 import Link from 'next/link';
 import { Nav } from '@/components/Nav';
 import { PlanCards } from '@/components/PlanCards';
+import { PlanCta } from '@/components/PlanCta';
 import { SiteFooter } from '@/components/SiteFooter';
-import { getSiteName } from '@/lib/brand';
+import { getPlansInfo, getSiteName, paymentWording } from '@/lib/brand';
 import { SITE_URL } from '@/lib/site';
 import type { Plan } from '@/lib/types';
 
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-
-// Rendered on the server (refreshed every 5 minutes) so the plans and prices are in the HTML search engines read.
-export const revalidate = 300;
-
-async function loadPlans(): Promise<Plan[] | null> {
-  try {
-    const r = await fetch(`${API}/api/billing/plans`, { next: { revalidate: 300 } });
-    if (!r.ok) return null;
-    return ((await r.json()) as { plans: Plan[] }).plans.filter((p) => p.available);
-  } catch {
-    return null;
-  }
-}
+// Rendered on the server so the plans and prices are in the HTML search engines read; refreshed when the admin changes them.
 
 export default async function PricingPage() {
-  const [plans, siteName] = await Promise.all([loadPlans(), getSiteName()]);
+  const [info, siteName] = await Promise.all([getPlansInfo(), getSiteName()]);
+  const plans = info?.plans ?? null;
+  const paying = info ? paymentWording(info.methods) : null;
   const jsonLd = plans && {
     '@context': 'https://schema.org',
     '@type': 'Product',
@@ -41,23 +31,22 @@ export default async function PricingPage() {
           <h1 style={{ fontSize: 'clamp(30px, 4.2vw, 48px)' }}>Start free. <span className="serif grad-text">Upgrade when it matters.</span></h1>
           <p>
             No 15-minute sleep and no cold starts on any plan. Free web services pause only after 7 days with zero visitors (one-click resume); static sites
-            and paid apps never pause. Pay monthly with UPI, cards or netbanking and cancel any time.
+            and paid apps never pause.{paying ? ` Pay with ${paying}.` : ''}
           </p>
         </div>
         {plans ? (
           <PlanCards
             plans={plans}
-            action={(p) => (
-              <Link className={`btn ${p.id === 'starter' ? 'btn-primary' : ''}`} style={{ width: '100%', justifyContent: 'center' }} href={p.id === 'free' ? '/register' : '/billing'}>
-                {p.id === 'free' ? 'Start for free' : `Get ${p.name}`}
-              </Link>
-            )}
+            action={(p) => <PlanCta plan={p} featured={p.id === 'starter'} />}
           />
         ) : (
           <div className="notice-box">Plans could not be loaded right now. <Link href="/register">Create a free account</Link> to get started.</div>
         )}
         <p className="muted" style={{ textAlign: 'center', marginTop: 28, fontSize: 13.5 }}>
-          Prices in INR, taxes as applicable. Payments are processed by Razorpay. See our <Link href="/refund-policy">Cancellation &amp; Refund Policy</Link>.
+          Prices in INR, taxes as applicable. Everyone can compare plans; buying one needs a free account.{' '}
+          {info?.methods.razorpay ? 'Card and AutoPay payments are processed by Razorpay and renew monthly until cancelled. ' : ''}
+          {info?.methods.upi ? 'Direct UPI payments cover one month, are verified by our team and do not renew automatically. ' : ''}
+          See our <Link href="/refund-policy">Cancellation &amp; Refund Policy</Link>.
         </p>
       </main>
       <SiteFooter />

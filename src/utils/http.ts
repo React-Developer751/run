@@ -1,8 +1,9 @@
 import http from 'node:http';
 import { config } from '../config/index.js';
 import { logger } from './logger.js';
-import { RateLimiter } from './rateLimit.js';
+import { RateLimiter, ipKey } from './rateLimit.js';
 import type { User } from '../services/store.service.js';
+import { HttpError } from './errors.js';
 
 export function parseCookies(header: string | undefined): Record<string, string> {
   const out: Record<string, string> = {};
@@ -37,14 +38,8 @@ export function authCookieNames(req: http.IncomingMessage): { access: string; re
   return { access: `${prefix}${config.accessCookie}`, refresh: `${prefix}${config.refreshCookie}` };
 }
 
-export class HttpError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+// Lives in its own module so low-level helpers (rate limiter) can throw it without importing this file.
+export { HttpError } from './errors.js';
 
 export interface Ctx {
   req: http.IncomingMessage;
@@ -55,6 +50,8 @@ export interface Ctx {
   status: number;
   user: User | null;
   ip: string;
+  /** `ip` as a rate-limit key (IPv6 counted per /64). Use this, not `ip`, in limiter keys. */
+  ipKey: string;
   json: () => Promise<Record<string, unknown>>;
   /** Unparsed request body (needed to verify webhook signatures). */
   raw: () => Promise<Buffer>;
@@ -116,6 +113,8 @@ const apiLimiter = new RateLimiter(600, 60 * 1000, 'Too many requests. Slow down
  * Behind a trusted reverse proxy the socket address is the proxy itself, which would make every user share one
  * rate-limit bucket. The proxy appends the real client as the LAST X-Forwarded-For entry; earlier entries are client-controlled.
  */
+const isLoopback = (addr: string | undefined) => addr === '127.0.0.1' || addr === '::1' || addr === '::ffff:127.0.0.1';
+
 export function clientIp(req: http.IncomingMessage): string {
   if (config.trustProxy) {
     const forwarded = req.headers['x-forwarded-for'];
@@ -219,16 +218,22 @@ export function createApiServer(router: Router, authenticate: (req: http.Incomin
 
     let rawPromise: Promise<Buffer> | undefined;
     try {
-      apiLimiter.hit(`api:${clientIp(req)}`);
       enforceOrigin(req);
+      const ip = clientIp(req);
+      const user = await authenticate(req);
+      // Signed-in users are limited per account (many students can share one college IP); guests per IP.
+      // The dashboard's own server and Caddy's certificate checks call from this machine without a proxy header.
+      const internal = isLoopback(req.socket.remoteAddress) && !req.headers['x-forwarded-for'];
+      if (!internal) apiLimiter.hit(user ? `user:${user.id}` : `ip:${ipKey(ip)}`);
       const ctx: Ctx = {
         req,
         res,
         params: matched.params,
         query: url.searchParams,
         status: 200,
-        user: await authenticate(req),
-        ip: clientIp(req),
+        user,
+        ip,
+        ipKey: ipKey(ip),
         headers: req.headers,
         raw: () => (rawPromise ??= readRaw(req)),
         json: async () => {
@@ -243,7 +248,10 @@ export function createApiServer(router: Router, authenticate: (req: http.Incomin
       const result = await matched.handler(ctx);
       send(res, ctx.status, result ?? { ok: true });
     } catch (err) {
-      if (err instanceof HttpError) return send(res, err.status, { error: err.message });
+      if (err instanceof HttpError) {
+        if (err.retryAfter && !res.headersSent) res.setHeader('Retry-After', String(err.retryAfter));
+        return send(res, err.status, { error: err.message });
+      }
       logger.error(`Unhandled error on ${req.method} ${url.pathname}`, err);
       send(res, 500, { error: 'Internal server error' });
     }

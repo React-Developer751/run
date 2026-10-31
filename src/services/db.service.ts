@@ -28,6 +28,9 @@ const MIGRATIONS: string[] = [
    CREATE INDEX feedback_user ON feedback(user_id);
    CREATE TABLE tickets (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, updated_at TEXT NOT NULL, doc TEXT NOT NULL);
    CREATE INDEX tickets_user ON tickets(user_id);`,
+  `CREATE TABLE upi_payments (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at TEXT NOT NULL, utr TEXT NOT NULL, doc TEXT NOT NULL);
+   CREATE INDEX upi_payments_user ON upi_payments(user_id);
+   CREATE INDEX upi_payments_utr ON upi_payments(utr);`,
 ];
 
 /** Thin synchronous wrapper around node:sqlite (built into Node 22+, no native module to compile). */

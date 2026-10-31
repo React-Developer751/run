@@ -14,6 +14,7 @@ const LINKS: Array<{ href: string; label: string; icon: IconName }> = [
   { href: '/admin/projects', label: 'Projects', icon: 'box' },
   { href: '/admin/deployments', label: 'Deployments', icon: 'activity' },
   { href: '/admin/notifications', label: 'Notifications', icon: 'bell' },
+  { href: '/admin/payments', label: 'Payments', icon: 'key' },
   { href: '/admin/support', label: 'Support', icon: 'message' },
   { href: '/admin/feedback', label: 'Feedback', icon: 'star' },
   { href: '/admin/settings', label: 'Settings', icon: 'sliders' },

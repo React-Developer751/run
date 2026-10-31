@@ -7,8 +7,10 @@ import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { Health } from '@/lib/types';
 import { Icon } from './Icon';
+import { AccountMenu } from './AccountMenu';
 import { Logo } from './Logo';
 import { ThemeToggle } from './ThemeToggle';
+import { useConfirm } from './ConfirmProvider';
 
 function RunnerChip({ health }: { health: Health | null }) {
   if (!health) return null;
@@ -56,6 +58,7 @@ function VerifyBanner({ email }: { email: string }) {
 
 export function Nav({ variant }: { variant: 'site' | 'app' }) {
   const { user, loading, signOut } = useAuth();
+  const confirm = useConfirm();
   const pathname = usePathname();
   const router = useRouter();
   const [health, setHealth] = useState<Health | null>(null);
@@ -74,6 +77,7 @@ export function Nav({ variant }: { variant: 'site' | 'app' }) {
   }, [variant, user, pathname]);
 
   const logout = async () => {
+    if (!(await confirm({ title: 'Sign out?', message: 'You will need to sign in again to manage your apps. Your apps keep running.', confirmLabel: 'Sign out' }))) return;
     await signOut();
     router.push('/');
   };
@@ -98,7 +102,6 @@ export function Nav({ variant }: { variant: 'site' | 'app' }) {
             <Link className={`nav-link ${pathname === '/support' ? 'active' : ''}`} href="/support">
               Support{supportUnread > 0 && <span className="count-badge" aria-label={`${supportUnread} new replies`}>{supportUnread}</span>}
             </Link>
-            {user?.role === 'admin' && <Link className={`nav-link ${pathname.startsWith('/admin') ? 'active' : ''}`} href="/admin">Admin</Link>}
           </div>
         )}
 
@@ -110,12 +113,8 @@ export function Nav({ variant }: { variant: 'site' | 'app' }) {
               {variant === 'site' && (
                 <Link href="/dashboard" className="btn btn-sm btn-primary">Dashboard</Link>
               )}
-              <Link href="/account" className="avatar" title={`${user.name} · account settings`} aria-label="Account settings">{user.name.charAt(0).toUpperCase()}</Link>
-              {variant === 'app' && (
-                <button className="btn btn-sm" onClick={logout} aria-label="Sign out">
-                  <Icon name="logout" /> Sign out
-                </button>
-              )}
+              {/* Profile, settings, billing, support, Admin panel (admins) and sign out live in this menu. */}
+              <AccountMenu user={user} billing={Boolean(health?.billing)} onSignOut={() => void logout()} />
             </>
           ) : (
             <>

@@ -94,6 +94,9 @@ function ownedProject(ctx: Ctx): Project {
 
 let activeScans = 0;
 const domainLimiter = new RateLimiter(20, 60 * 1000, 'Too many checks. DNS changes take a few minutes anyway.');
+// Scanning clones a whole repository: expensive, so a few per minute per user.
+const scanLimiter = new RateLimiter(20, 10 * 60 * 1000, 'Too many repository scans. Please wait a few minutes.');
+const domainAddLimiter = new RateLimiter(20, 60 * 60 * 1000, 'Too many domains added. Please wait a while.');
 // Builds burn CPU: cap how often one user can start them (auto-deploys on new commits are exempt).
 const deployLimiter = new RateLimiter(30, 60 * 60 * 1000, 'You are deploying too often. Please wait a while before starting another build.');
 
@@ -118,6 +121,7 @@ export class DeployController {
   /** Clones the repo to a temp folder and lists every sub-folder holding a package.json. */
   static async scan(ctx: Ctx) {
     const user = AuthService.requireVerified(ctx.user);
+    scanLimiter.hit(user.id);
     const body = await ctx.json();
     const { url, repoName } = validateRepoUrl(body.repoUrl);
     const branch = validateBranch(body.branch);
@@ -257,8 +261,9 @@ export class DeployController {
   }
 
   static async addDomain(ctx: Ctx) {
-    AuthService.requireVerified(ctx.user);
+    const user = AuthService.requireVerified(ctx.user);
     const project = ownedProject(ctx);
+    domainAddLimiter.hit(user.id);
     const body = await ctx.json();
     const updated = await DomainService.add(project, body.domain);
     ctx.status = 201;

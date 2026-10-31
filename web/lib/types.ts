@@ -140,6 +140,41 @@ export interface BillingInfo {
     currentPeriodEnd: string | null;
     paymentUrl: string | null;
   } | null;
+  /** Payment methods the admin switched on. */
+  methods: { razorpay: boolean; razorpayPlans: PlanId[]; upi: UpiDetails | null };
+  upi: { paidUntil: string | null; periodDays: number; payments: UpiPaymentRow[] };
+}
+
+export interface UpiDetails {
+  vpa: string;
+  payeeName: string;
+  note: string;
+}
+
+export interface UpiPaymentRow {
+  id: string;
+  plan: PlanId;
+  amountInr: number;
+  utr: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reason: string | null;
+  createdAt: string;
+  paidUntil: string | null;
+}
+
+export interface AdminUpiPayment extends UpiPaymentRow {
+  userId: string;
+  decidedAt: string | null;
+  decidedBy: string | null;
+  userName: string;
+  userEmail: string;
+  userPlan: PlanId | null;
+  userPaidUntil: string | null;
+}
+
+export interface PaymentSettings {
+  razorpayEnabled: boolean;
+  upi: UpiDetails & { enabled: boolean };
 }
 
 export interface GitHubStatus {
@@ -247,6 +282,9 @@ export interface PlatformSettings {
   appsDomainAuto: boolean;
   /** Values the admin saved; empty fields fall back to NEXT_PUBLIC_LEGAL_* on the pages. */
   business: import('./site').BusinessDetails;
+  razorpayReady: boolean;
+  payments: PaymentSettings;
+  pendingPayments: number;
   allowSignup: boolean;
   maxProjectsPerUser: number;
   billingEnabled: boolean;
@@ -261,6 +299,7 @@ export type SettingsPatch = Partial<Pick<PlatformSettings, 'allowSignup' | 'maxP
   siteName?: string | null;
   /** Full set of business details; a missing or empty field is removed. */
   business?: import('./site').BusinessDetails;
+  payments?: { razorpayEnabled?: boolean; upi?: Partial<PaymentSettings['upi']> };
 };
 
 export interface AdminStats {
@@ -284,7 +323,7 @@ export interface AdminStats {
 export interface AdminNotification {
   id: string;
   at: string;
-  kind: 'deploy-failed' | 'disk-near-full' | 'memory-high' | 'capacity-near-limit' | 'support-ticket';
+  kind: 'deploy-failed' | 'disk-near-full' | 'memory-high' | 'capacity-near-limit' | 'support-ticket' | 'upi-payment';
   severity: 'warning' | 'critical';
   title: string;
   message: string;
@@ -372,3 +411,21 @@ export interface AdminTicketSummary extends TicketSummary {
 }
 
 export type AdminTicket = Ticket & { userName: string; userEmail: string; userPlan: PlanId | null; userId: string };
+
+export interface Profile {
+  user: User & { createdAt: string; lastLoginAt: string | null; passwordChangedAt: string | null; emailVerifiedAt: string | null };
+  plan: {
+    id: PlanId;
+    name: string;
+    priceInr: number;
+    paidPlansOffered: boolean;
+    source: 'razorpay' | 'upi' | 'admin' | 'free';
+    renewsOn: string | null;
+    endsOn: string | null;
+    subscriptionStatus: string | null;
+  };
+  limits: { webServices: number; staticSites: number; customDomains: number; memory: string; cpus: string };
+  usage: { projects: number; live: number; webServices: number; staticSites: number; customDomains: number };
+  signIn: { email: boolean; github: { login: string; linkedAt: string } | null; activeSessions: number };
+  support: { open: number; unread: number };
+}

@@ -264,6 +264,8 @@ export class GitHubService {
       termsAcceptedAt: now,
       termsVersion: config.termsVersion,
       subscription: null,
+      manualPlanUntil: null,
+      manualPlanRemindedAt: null,
       createdAt: now,
     });
     return { user, created: true };

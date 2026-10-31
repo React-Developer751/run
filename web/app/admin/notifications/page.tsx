@@ -13,6 +13,7 @@ const KIND_LABEL: Record<AdminNotification['kind'], string> = {
   'memory-high': 'Memory high',
   'capacity-near-limit': 'Capacity limit',
   'support-ticket': 'Support request',
+  'upi-payment': 'UPI payment',
 };
 
 type Filter = 'all' | 'unread' | AdminNotification['kind'];
@@ -135,7 +136,7 @@ export default function AdminNotifications() {
       {error && <div className="error-box">{error}</div>}
 
       <div className="row" style={{ flexWrap: 'wrap' }}>
-        {(['all', 'unread', 'support-ticket', 'deploy-failed', 'disk-near-full', 'memory-high', 'capacity-near-limit'] as Filter[]).map((f) => (
+        {(['all', 'unread', 'upi-payment', 'support-ticket', 'deploy-failed', 'disk-near-full', 'memory-high', 'capacity-near-limit'] as Filter[]).map((f) => (
           <button key={f} className={`btn btn-sm ${filter === f ? 'btn-primary' : ''}`} onClick={() => setFilter(f)}>
             {f === 'all' ? 'All' : f === 'unread' ? 'Unread' : KIND_LABEL[f]}
           </button>
@@ -155,6 +156,7 @@ export default function AdminNotifications() {
               <div className="row" style={{ gap: 12, fontSize: 13 }}>
                 <span className={`badge ${n.severity === 'critical' ? 'badge-bad' : 'badge-busy'}`}>{KIND_LABEL[n.kind] ?? n.kind}</span>
                 {n.kind === 'support-ticket' && <Link href="/admin/support">Open support inbox</Link>}
+                {n.kind === 'upi-payment' && <Link href="/admin/payments">Verify payment</Link>}
                 {n.projectName && <Link href={`/admin/projects?q=${encodeURIComponent(n.projectName)}`}>View project</Link>}
                 {!n.readAt && <button className="link-btn" onClick={() => markRead([n.id])}>Mark read</button>}
               </div>

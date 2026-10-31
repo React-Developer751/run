@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { config } from '../config/index.js';
 import { HttpError } from '../utils/http.js';
-import { billingEnabled, getPlan, setPlanOverrides, type PlanId, type PlanLimits, type PlanOverrides } from '../config/plans.js';
+import { billingEnabled, getPlan, setPaymentSettings, setPlanOverrides, type PaymentSettings, type PlanId, type PlanLimits, type PlanOverrides } from '../config/plans.js';
 import { logger } from '../utils/logger.js';
 import { Db } from './db.service.js';
 import { DeployLog } from './log.service.js';
@@ -39,6 +39,10 @@ export interface User {
   termsVersion: string | null;
   /** Razorpay subscription behind a paid plan (null for free / plans granted by an admin). */
   subscription: Subscription | null;
+  /** Paid by direct UPI: the plan lasts until this date (null = no end, e.g. Razorpay, Free or set by an admin). */
+  manualPlanUntil: string | null;
+  /** When the "your plan ends soon" email for the current UPI period was sent. */
+  manualPlanRemindedAt: string | null;
   createdAt: string;
 }
 
@@ -73,6 +77,25 @@ export interface Settings {
   siteName?: string | null;
   /** Business details for the contact, legal and footer pages (Admin → Settings). Missing fields fall back to env. */
   business?: BusinessDetails | null;
+  /** Payment methods offered to users (Admin → Settings → Payment methods). */
+  payments?: PaymentSettings | null;
+}
+
+/** A direct UPI payment the user reported (UTR); an admin checks the bank statement and approves or rejects it. */
+export interface UpiPayment {
+  id: string;
+  userId: string;
+  plan: PlanId;
+  amountInr: number;
+  /** 12-digit UPI reference number from the user's UPI app. */
+  utr: string;
+  status: 'pending' | 'approved' | 'rejected';
+  reason: string | null;
+  createdAt: string;
+  decidedAt: string | null;
+  decidedBy: string | null;
+  /** When approved: the plan is paid until this date. */
+  paidUntil: string | null;
 }
 
 export const BUSINESS_FIELDS = ['company', 'address', 'email', 'phone', 'abuseEmail', 'grievanceOfficer', 'grievanceEmail', 'jurisdiction'] as const;
@@ -195,6 +218,7 @@ interface Database {
   adminNotifications: AdminNotification[];
   feedback: Feedback[];
   tickets: Ticket[];
+  upiPayments: UpiPayment[];
 }
 
 /** A user's rating of HostX, asked for after a successful deploy. Admins can feature it on the landing page. */
@@ -241,7 +265,7 @@ export interface Ticket {
 export interface AdminNotification {
   id: string;
   at: string;
-  kind: 'deploy-failed' | 'disk-near-full' | 'memory-high' | 'capacity-near-limit' | 'support-ticket';
+  kind: 'deploy-failed' | 'disk-near-full' | 'memory-high' | 'capacity-near-limit' | 'support-ticket' | 'upi-payment';
   severity: 'warning' | 'critical';
   title: string;
   message: string;
@@ -274,6 +298,8 @@ const normalizeUser = (u: User): User => ({
   termsAcceptedAt: u.termsAcceptedAt ?? null,
   termsVersion: u.termsVersion ?? null,
   subscription: u.subscription ?? null,
+  manualPlanUntil: u.manualPlanUntil ?? null,
+  manualPlanRemindedAt: u.manualPlanRemindedAt ?? null,
 });
 
 /** Fills fields added after a record was written; secrets are decrypted (they are encrypted at rest). */
@@ -323,7 +349,7 @@ const WEBHOOK_EVENTS_KEPT = 2000;
  * durable before the call resolves. Records are also kept in memory, so reads stay synchronous and cheap.
  */
 export class Store {
-  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [], events: [], webhookEvents: [], adminNotifications: [], feedback: [], tickets: [] };
+  private static db: Database = { users: [], projects: [], deployments: [], settings: { allowSignup: null, maxProjectsPerUser: null }, audit: [], sessions: [], tokens: [], events: [], webhookEvents: [], adminNotifications: [], feedback: [], tickets: [], upiPayments: [] };
 
   static async init(): Promise<void> {
     await fs.mkdir(config.dataDir, { recursive: true, mode: 0o700 });
@@ -344,10 +370,12 @@ export class Store {
       adminNotifications: docs<AdminNotification>('admin_notifications', ' ORDER BY at DESC'),
       feedback: docs<Feedback>('feedback', ' ORDER BY at DESC'),
       tickets: docs<Ticket>('tickets', ' ORDER BY updated_at DESC'),
+      upiPayments: docs<UpiPayment>('upi_payments', ' ORDER BY created_at DESC'),
       settings: settings ? (JSON.parse(settings.doc) as Settings) : { allowSignup: null, maxProjectsPerUser: null },
     };
 
     setPlanOverrides(this.db.settings.plans);
+    setPaymentSettings(this.db.settings.payments);
     setSiteName(this.db.settings.siteName);
 
     // Accounts created before roles existed: make sure somebody can administer the platform.
@@ -463,6 +491,14 @@ export class Store {
   }
 
   // ── sessions (refresh tokens) ──────────────────────────
+  /** Sign-ins of a user that are still valid (one per browser/device). */
+  static activeSessionsOf(userId: string): Session[] {
+    const now = Date.now();
+    const live = this.db.sessions.filter((s) => s.userId === userId && !s.revokedAt && !s.rotatedAt && new Date(s.expiresAt).getTime() > now);
+    // One row per login (family): rotation keeps only the newest token alive, but be safe about duplicates.
+    return [...new Map(live.map((s) => [s.familyId, s])).values()];
+  }
+
   static getSession(id: string): Session | undefined {
     return this.db.sessions.find((s) => s.id === id);
   }
@@ -545,6 +581,7 @@ export class Store {
     Db.put('settings', { key: 'platform', doc: JSON.stringify(next) }, 'key');
     Object.assign(this.db.settings, patch);
     if ('plans' in patch) setPlanOverrides(this.db.settings.plans);
+    if ('payments' in patch) setPaymentSettings(this.db.settings.payments);
     if ('siteName' in patch) setSiteName(this.db.settings.siteName);
     return this.db.settings;
   }
@@ -693,6 +730,22 @@ export class Store {
   }
 
   /** Inserts or replaces a ticket; the list stays sorted by last activity. */
+  // ── UPI payments ───────────────────────────────────────
+  static allUpiPayments(): readonly UpiPayment[] {
+    return this.db.upiPayments;
+  }
+
+  static getUpiPayment(id: string): UpiPayment | undefined {
+    return this.db.upiPayments.find((p) => p.id === id);
+  }
+
+  /** Inserts or replaces a payment (newest first). Kept after account deletion: they are financial records. */
+  static async putUpiPayment(p: UpiPayment): Promise<UpiPayment> {
+    Db.put('upi_payments', { id: p.id, user_id: p.userId, created_at: p.createdAt, utr: p.utr, doc: JSON.stringify(p) });
+    this.db.upiPayments = [p, ...this.db.upiPayments.filter((x) => x.id !== p.id)].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return p;
+  }
+
   static async putTicket(t: Ticket): Promise<Ticket> {
     Db.put('tickets', { id: t.id, user_id: t.userId, updated_at: t.updatedAt, doc: JSON.stringify(t) });
     this.db.tickets = [t, ...this.db.tickets.filter((x) => x.id !== t.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

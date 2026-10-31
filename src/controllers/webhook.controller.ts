@@ -5,7 +5,7 @@ import { RateLimiter } from '../utils/rateLimit.js';
 import { DeployService } from '../services/deploy.service.js';
 import { Store } from '../services/store.service.js';
 
-const limiter = new RateLimiter(120, 60 * 1000);
+const limiter = new RateLimiter(60, 60 * 1000);
 
 function validSignature(secret: string, body: Buffer, header: string | undefined): boolean {
   if (!header?.startsWith('sha256=')) return false;
@@ -17,7 +17,9 @@ function validSignature(secret: string, body: Buffer, header: string | undefined
 export class WebhookController {
   /** GitHub "push" webhook. Authenticated by the per-project HMAC secret, not by a user session. */
   static async github(ctx: Ctx) {
-    limiter.hit(`webhook:${ctx.ip}`);
+    // Per project: GitHub delivers every user's pushes from the same few IPs, so a per-IP limit would let one busy
+    // repository (or someone probing ids) block everybody's deploys.
+    limiter.hit(`webhook:${ctx.params.id ?? ''}:${ctx.ipKey}`);
     const project = Store.getProject(ctx.params.id ?? '');
     const body = await ctx.raw();
     // Same answer for unknown project and bad signature so ids cannot be probed.

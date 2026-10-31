@@ -1,10 +1,11 @@
-import { PLAN_IDS, getPlan, isPlanId } from '../config/plans.js';
+import { PLAN_IDS, getPlan, isPlanId, razorpayActive, upiActive } from '../config/plans.js';
 import type { Ctx } from '../utils/http.js';
 import { HttpError } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { RateLimiter } from '../utils/rateLimit.js';
 import { AuthService } from '../services/auth.service.js';
 import { BillingService } from '../services/billing.service.js';
+import { UpiService, UPI_PERIOD_DAYS } from '../services/upi.service.js';
 import { Store, kindOf, limitsFor } from '../services/store.service.js';
 
 const limiter = new RateLimiter(10, 60 * 1000, 'Too many billing requests. Wait a moment.');
@@ -14,9 +15,13 @@ export class BillingController {
   /** Public (pricing page). */
   static plans() {
     const buyable = BillingService.purchasable();
+    const upi = upiActive();
     return {
       enabled: BillingService.enabled(),
-      plans: PLAN_IDS.map((id) => ({ ...getPlan(id), available: id === 'free' || buyable.includes(id) })),
+      // Which ways to pay are on (pricing page wording); no UPI ID or keys here.
+      methods: { razorpay: razorpayActive(), upi: upi },
+      // A paid plan is offered when Razorpay can bill it, or (UPI on) when it has a price.
+      plans: PLAN_IDS.map((id) => ({ ...getPlan(id), available: id === 'free' || buyable.includes(id) || (upi && getPlan(id).priceInr > 0) })),
     };
   }
 
@@ -36,6 +41,13 @@ export class BillingController {
         customDomains: projects.reduce((n, p) => n + p.domains.length, 0),
       },
       subscription: sub ? { plan: sub.plan, status: sub.status, currentPeriodEnd: sub.currentPeriodEnd, paymentUrl: sub.status === 'created' ? sub.shortUrl : null } : null,
+      // Payment methods the admin switched on, and the user's direct UPI state.
+      methods: { razorpay: razorpayActive(), razorpayPlans: BillingService.purchasable(), upi: UpiService.details() },
+      upi: {
+        paidUntil: UpiService.planIsPaidByUpi(user) ? user.manualPlanUntil : null,
+        periodDays: UPI_PERIOD_DAYS,
+        payments: UpiService.historyOf(user.id).map((p) => ({ id: p.id, plan: p.plan, amountInr: p.amountInr, utr: p.utr, status: p.status, reason: p.reason, createdAt: p.createdAt, paidUntil: p.paidUntil })),
+      },
     };
   }
 
@@ -47,6 +59,16 @@ export class BillingController {
     return BillingService.subscribe(user, body.plan);
   }
 
+  /** Direct UPI: the user paid the plan price to the admin's UPI ID and reports the UTR for an admin to verify. */
+  static async payByUpi(ctx: Ctx) {
+    const user = AuthService.requireVerified(ctx.user);
+    limiter.hit(user.id);
+    const body = await ctx.json();
+    const p = await UpiService.submit(user, body.plan, body.utr);
+    ctx.status = 201;
+    return { payment: { id: p.id, plan: p.plan, amountInr: p.amountInr, utr: p.utr, status: p.status, createdAt: p.createdAt } };
+  }
+
   static async cancel(ctx: Ctx) {
     const user = AuthService.requireUser(ctx.user);
     limiter.hit(user.id);
@@ -56,7 +78,7 @@ export class BillingController {
 
   /** Razorpay webhook (Settings -> Webhooks), signed with the webhook secret. */
   static async webhook(ctx: Ctx) {
-    webhookLimiter.hit(`rzp:${ctx.ip}`);
+    webhookLimiter.hit(`rzp:${ctx.ipKey}`);
     const body = await ctx.raw();
     if (!BillingService.verifyWebhook(body, ctx.headers['x-razorpay-signature'] as string | undefined)) {
       throw new HttpError(401, 'Invalid signature');

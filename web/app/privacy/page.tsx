@@ -34,7 +34,9 @@ export default async function PrivacyPage() {
           <tr><td>GitHub username and the GitHub App installations you connect</td><td>List and clone the repositories you choose (we never store your GitHub password or personal token)</td></tr>
           <tr><td>Repository code, build logs, runtime logs, environment variables (encrypted at rest)</td><td>Build, run and troubleshoot your applications</td></tr>
           <tr><td>Custom domain names</td><td>Route your domain to your application and obtain its HTTPS certificate</td></tr>
-          <tr><td>Plan and subscription status, Razorpay subscription id</td><td>Billing. Card, UPI and bank details are collected and processed by Razorpay, not stored by us</td></tr>
+          <tr><td>Plan and subscription status, Razorpay subscription id</td><td>Billing. Card, UPI and bank details for Razorpay payments are collected and processed by Razorpay, not stored by us</td></tr>
+          <tr><td>For direct UPI payments: amount, plan, date and the UPI reference number (UTR) you enter</td><td>Matching your payment with our bank statement and activating your plan. We never see or store your UPI PIN or bank account details</td></tr>
+          <tr><td>Support requests and their replies; feedback ratings and comments</td><td>Answering you and improving the Service. Feedback is shown on our website only if you ticked the box allowing it, with your first name and last initial</td></tr>
           <tr><td>Security and audit logs of administrative actions</td><td>Security, fraud prevention, legal obligations</td></tr>
         </tbody>
       </table>
@@ -47,7 +49,8 @@ export default async function PrivacyPage() {
 
       <h2>3. Who we share data with</h2>
       <ul>
-        <li><b>Razorpay</b>, for payments and invoices.</li>
+        <li><b>Razorpay</b>, for payments and invoices, when you pay through it.</li>
+        <li><b>Your bank / UPI app</b> processes a direct UPI payment between you and us; we only receive the amount and reference number.</li>
         <li><b>GitHub</b>, when you connect it, to access the repositories you select.</li>
         <li><b>Our hosting and email providers</b>, which store data or send emails on our behalf under confidentiality obligations.</li>
         <li><b>Let&apos;s Encrypt</b>, which receives your custom domain names to issue HTTPS certificates.</li>
@@ -56,9 +59,9 @@ export default async function PrivacyPage() {
 
       <h2>4. How long we keep it</h2>
       <ul>
-        <li>Account data: while your account exists. When you delete your account we delete your applications, logs, sessions and profile right away; copies in backups are overwritten within 30 days.</li>
+        <li>Account data: while your account exists. When you delete your account we immediately and permanently delete your profile, applications, environment variables, custom domains, logs, sessions, support requests and feedback (no &quot;soft delete&quot;); copies in backups are overwritten within 30 days. We email you a confirmation.</li>
         <li>Build logs: the latest 15 deployments per project. Expired sessions and email links are removed automatically.</li>
-        <li>Billing records: as long as tax and accounting law requires (generally up to 8 years), held by us and Razorpay.</li>
+        <li>Billing records (payments, UPI reference numbers, invoices) and the security audit log: kept after account deletion for as long as tax, accounting and security law requires (generally up to 8 years), by us and, for card payments, Razorpay.</li>
       </ul>
 
       <h2>5. Security</h2>
