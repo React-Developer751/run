@@ -282,6 +282,10 @@ Sab env se badal sakte ho (`HOSTX_PRICE_STARTER`, `HOSTX_FREE_WEB_SERVICES`, `HO
 - Admin → Users mein har user ka plan haath se set kar sakte ho (free upgrade, koi charge nahi).
 - Public `/pricing` page (sitemap mein).
 
+**Payment methods (Admin → Settings → Payment methods):** admin Razorpay aur Direct UPI ko alag-alag on/off karta hai; users ko sirf chalu methods dikhte hain. Dono band = paid plans nahi khareede ja sakte (plan limits bhi band, jaise private install).
+
+**Direct UPI (bina gateway, 0% fees):** admin apni UPI ID + payee naam daalta hai. User Billing par plan chunta hai → QR (sahi amount ke saath) scan karke pay karta hai (phone par "Open UPI app" button) → 12-digit UTR daalta hai. Admin ko notification + email; **Admin → Payments** mein bank statement se UTR milake **Approve** (plan 30 din ke liye, user ko email) ya **Reject** (wajah ke saath, user ko email). Ek UTR ek hi baar; ek waqt par ek pending request; Razorpay subscription wale UPI se nahi, aur UPI-paid wale Razorpay se tab tak nahi. Auto-renewal nahi: khatam hone se 3 din pehle reminder email, period khatam hote hi Free plan (kuch delete nahi). Period ke beech dobara pay karna = agla mahina jud jaata hai. Admin ka haath se set kiya plan hamesha ke liye hota hai (expiry nahi). Payments record account delete hone par bhi rehte hain (hisaab-kitaab).
+
 **Setup:** Razorpay Dashboard → Subscriptions → **Plans**: "Starter" ₹299 monthly aur "Pro" ₹999 monthly banao, unke `plan_...` ids lo. Settings → API Keys, aur Settings → **Webhooks**: URL `https://api.yourdomain.com/api/billing/webhook`, secret set karo, events: `subscription.activated, charged, updated, pending, halted, cancelled, completed, paused, resumed`. Pehle **Test mode** keys se poora flow try karo.
 
 ## Auto-deploy (git push → automatic update)

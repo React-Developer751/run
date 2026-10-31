@@ -23,8 +23,11 @@ export default async function ShippingPolicyPage() {
       </p>
       <ul>
         <li>The Free plan is available immediately after you create an account.</li>
-        <li>A paid plan is activated automatically as soon as Razorpay confirms your payment, usually within a minute. Its limits apply to your account and running applications right away.</li>
-        <li>If a paid plan is not active within 30 minutes of a successful payment, write to {legal.email} with your account email and payment id and we will fix it or refund you.</li>
+        <li>Paid plans are bought by signed-in users from the Billing page.</li>
+        <li>Paid through Razorpay: the plan is activated automatically as soon as Razorpay confirms your payment, usually within a minute.</li>
+        <li>Paid by direct UPI: the plan is activated after we verify the reference number (UTR) you entered, usually within a few hours and at the latest within 1 business day. You get an email either way.</li>
+        <li>Plan limits apply to your account and running applications right away once active.</li>
+        <li>If a paid plan is not active within these times after a successful payment, write to {legal.email} with your account email and the Razorpay payment id or UPI reference number, and we will activate it or refund you.</li>
       </ul>
     </LegalPage>
   );

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 import { BrandProvider } from '@/components/BrandProvider';
+import { ConfirmProvider } from '@/components/ConfirmProvider';
 import { AuthProvider } from '@/lib/auth';
 import { getBusiness, getSiteName } from '@/lib/brand';
 import { SITE_DESCRIPTION, SITE_URL, siteTitle } from '@/lib/site';
@@ -42,7 +43,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       </head>
       <body>
         <BrandProvider initial={name} business={business}>
-          <AuthProvider>{children}</AuthProvider>
+          <AuthProvider>
+            <ConfirmProvider>{children}</ConfirmProvider>
+          </AuthProvider>
         </BrandProvider>
       </body>
     </html>

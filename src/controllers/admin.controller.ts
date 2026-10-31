@@ -5,7 +5,8 @@ import type { Ctx } from '../utils/http.js';
 import { HttpError } from '../utils/http.js';
 import { exec } from '../utils/exec.js';
 import { AuthService } from '../services/auth.service.js';
-import { PLANS, PLAN_IDS, billingEnabled, getPlan, isPlanId, razorpayPlanId, type EditablePlan, type PlanId, type PlanOverrides } from '../config/plans.js';
+import { PLANS, PLAN_IDS, billingEnabled, getPlan, isPlanId, paymentSettings, razorpayReady, razorpayPlanId, type EditablePlan, type PaymentSettings, type PlanId, type PlanOverrides } from '../config/plans.js';
+import { UpiService } from '../services/upi.service.js';
 import { BillingService } from '../services/billing.service.js';
 import { AccountService } from '../services/account.service.js';
 import { DeployService, assertCanStart, assertCanStop } from '../services/deploy.service.js';
@@ -215,7 +216,8 @@ export class AdminController {
     // Granted by hand (e.g. a free upgrade): applied to running apps right away, independent of any payment.
     if (newPlan && isPlanId(newPlan)) {
       await BillingService.setPlan(updated, newPlan, `set by admin ${actor.email}`);
-      updated = Store.getUserById(target.id) ?? updated;
+      // A plan set by hand has no end date (it replaces any UPI-paid period).
+      updated = await Store.updateUser(target.id, { manualPlanUntil: null, manualPlanRemindedAt: null });
     }
     if (patch.suspended === true || patch.role !== undefined) await Store.revokeUserSessions(target.id);
     if (patch.suspended === true) {
@@ -250,7 +252,7 @@ export class AdminController {
     if (target.role === 'admin' && !Store.allUsers().some((u) => u.id !== target.id && u.role === 'admin' && !u.suspended)) {
       throw new HttpError(400, 'At least one active administrator must remain');
     }
-    const removed = await AccountService.delete(target);
+    const removed = await AccountService.delete(target, true);
     await Store.addAudit(actor, 'user.delete', target.email, `removed ${removed} project(s)`);
     return { ok: true };
   }
@@ -322,6 +324,27 @@ export class AdminController {
       );
     }
     return { project: projectRow(updated) };
+  }
+
+  // ── UPI payments ────────────────────────────────────────
+  static payments(ctx: Ctx) {
+    admin(ctx);
+    const rows = Store.allUpiPayments().map((p) => {
+      const u = Store.getUserById(p.userId);
+      return { ...p, userName: u?.name ?? 'Deleted user', userEmail: u?.email ?? '', userPlan: u?.plan ?? null, userPaidUntil: u?.manualPlanUntil ?? null };
+    });
+    return { payments: rows, pending: rows.filter((p) => p.status === 'pending').length };
+  }
+
+  static async approvePayment(ctx: Ctx) {
+    const actor = admin(ctx);
+    return { payment: await UpiService.approve(ctx.params.id ?? '', actor) };
+  }
+
+  static async rejectPayment(ctx: Ctx) {
+    const actor = admin(ctx);
+    const body = await ctx.json();
+    return { payment: await UpiService.reject(ctx.params.id ?? '', actor, body.reason) };
   }
 
   static async redeploy(ctx: Ctx) {
@@ -401,6 +424,10 @@ export class AdminController {
       }
       const next = name && name !== DEFAULT_SITE_NAME ? name : null;
       if (next !== (Store.settings().siteName ?? null)) patch.siteName = next;
+    }
+    if (body.payments !== undefined) {
+      const next = validatePayments(body.payments);
+      if (JSON.stringify(next) !== JSON.stringify(paymentSettings())) patch.payments = next;
     }
     if (body.business !== undefined) {
       const next = validateBusiness(body.business);
@@ -499,6 +526,10 @@ function effectiveSettings() {
     billingEnabled: billingEnabled(),
     // Keys set but no plan id yet: the plan editor is shown so the admin can paste one.
     razorpayKeys: BillingService.hasKeys(),
+    // Razorpay keys + webhook secret + a plan id: what "Razorpay on" needs to actually work.
+    razorpayReady: razorpayReady(),
+    payments: paymentSettings(),
+    pendingPayments: Store.allUpiPayments().filter((p) => p.status === 'pending').length,
     // Current plan values, which of them the admin changed, and the defaults to go back to.
     plans: PLAN_IDS.map((id) => {
       const { projects: _total, id: _id, ...current } = getPlan(id);
@@ -513,6 +544,45 @@ function effectiveSettings() {
       };
     }),
   };
+}
+
+/** Payment methods from the admin form, merged over the current ones. */
+function validatePayments(raw: unknown): PaymentSettings {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new HttpError(400, 'payments must be an object');
+  const b = raw as { razorpayEnabled?: unknown; upi?: Record<string, unknown> };
+  const current = paymentSettings();
+  const next: PaymentSettings = { razorpayEnabled: current.razorpayEnabled, upi: { ...current.upi } };
+  if (b.razorpayEnabled !== undefined) {
+    if (typeof b.razorpayEnabled !== 'boolean') throw new HttpError(400, 'razorpayEnabled must be true or false');
+    next.razorpayEnabled = b.razorpayEnabled;
+  }
+  if (b.upi !== undefined) {
+    if (!b.upi || typeof b.upi !== 'object') throw new HttpError(400, 'upi must be an object');
+    const u = b.upi;
+    const text = (v: unknown, field: string, max: number) => {
+      if (typeof v !== 'string') throw new HttpError(400, `${field} must be text`);
+      const t = v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (t.length > max) throw new HttpError(400, `${field} is too long (max ${max} characters)`);
+      return t;
+    };
+    if (u.vpa !== undefined) {
+      const vpa = text(u.vpa, 'UPI ID', 100).toLowerCase();
+      if (vpa && !/^[a-z0-9._-]{2,64}@[a-z][a-z0-9]{1,63}$/.test(vpa)) throw new HttpError(400, 'UPI ID looks like yourname@bank (e.g. deploykaro@okicici)');
+      next.upi.vpa = vpa;
+    }
+    if (u.payeeName !== undefined) {
+      const name = text(u.payeeName, 'Payee name', 60);
+      if (name && !/^[\p{L}\p{N} .&'-]{2,60}$/u.test(name)) throw new HttpError(400, 'Payee name: letters, numbers, spaces and . & \' - only');
+      next.upi.payeeName = name;
+    }
+    if (u.note !== undefined) next.upi.note = text(u.note, 'Note', 200);
+    if (u.enabled !== undefined) {
+      if (typeof u.enabled !== 'boolean') throw new HttpError(400, 'upi.enabled must be true or false');
+      next.upi.enabled = u.enabled;
+    }
+    if (next.upi.enabled && (!next.upi.vpa || !next.upi.payeeName)) throw new HttpError(400, 'Enter the UPI ID and payee name before switching UPI on');
+  }
+  return next;
 }
 
 const EMAIL_FIELDS = new Set(['email', 'abuseEmail', 'grievanceEmail']);

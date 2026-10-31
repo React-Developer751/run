@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { HttpError } from './http.js';
+import { HttpError } from './errors.js';
 import type { ProjectKind } from '../services/store.service.js';
 
 const GITHUB_RE = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/;

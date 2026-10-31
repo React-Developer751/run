@@ -2,7 +2,10 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Icon, type IconName } from '@/components/Icon';
 import { SiteFooter } from '@/components/SiteFooter';
-import { getAppUrlTemplate, getSiteName } from '@/lib/brand';
+import { getAppUrlTemplate, getPlansInfo, getSiteName, paymentWording } from '@/lib/brand';
+import { AccountDeletedNotice } from '@/components/AccountDeletedNotice';
+import { PlanCards } from '@/components/PlanCards';
+import { PlanCta } from '@/components/PlanCta';
 import { SITE_URL, brandSlug, pageMetadata, siteTitle } from '@/lib/site';
 import { Nav } from '@/components/Nav';
 import { Testimonials } from '@/components/Testimonials';
@@ -98,7 +101,10 @@ const faqLd = (name: string) => ({
 });
 
 export default async function Landing() {
-  const [name, urlTemplate] = await Promise.all([getSiteName(), getAppUrlTemplate()]);
+  const [name, urlTemplate, plansInfo] = await Promise.all([getSiteName(), getAppUrlTemplate(), getPlansInfo()]);
+  // Paid plans are shown to everyone once some way to pay is switched on; buying needs an account (PlanCta).
+  const showPlans = Boolean(plansInfo?.enabled && plansInfo.plans.some((p) => p.priceInr > 0));
+  const paying = plansInfo ? paymentWording(plansInfo.methods) : null;
   const questions = faq(name);
   const slug = brandSlug(name);
   // Example app addresses use this server's real pattern, e.g. https://shop.apps.deploykaro.com
@@ -111,6 +117,7 @@ export default async function Landing() {
       <main>
       <header className="hero">
         <div className="container">
+          <AccountDeletedNotice />
           <div className="eyebrow">
             <span>Free plan</span> MERN hosting for students &amp; indie devs
           </div>
@@ -266,6 +273,22 @@ export default async function Landing() {
           </div>
         </div>
       </section>
+
+      {showPlans && plansInfo && (
+        <section className="section" id="plans" style={{ paddingTop: 0 }}>
+          <div className="container">
+            <div className="section-head">
+              <span className="tag">Plans</span>
+              <h2>Start free, <span className="serif grad-text">upgrade when you grow</span></h2>
+              <p>Compare every plan here. Creating an account is free; paid plans are bought from the Billing page after you sign in{paying ? `, with ${paying}` : ''}.</p>
+            </div>
+            <PlanCards plans={plansInfo.plans} action={(p) => <PlanCta plan={p} featured={p.id === 'starter'} />} />
+            <p className="muted" style={{ textAlign: 'center', marginTop: 20, fontSize: 13.5 }}>
+              Prices in INR, taxes as applicable. <Link href="/pricing">Full pricing</Link> · <Link href="/refund-policy">Cancellation &amp; Refund Policy</Link>
+            </p>
+          </div>
+        </section>
+      )}
 
       <Testimonials />
 

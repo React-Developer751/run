@@ -14,6 +14,7 @@ import { DomainService } from './services/domain.service.js';
 import { BackupService } from './services/backup.service.js';
 import { StorageMonitorService } from './services/storage-monitor.service.js';
 import { InactivityService } from './services/inactivity.service.js';
+import { UpiService } from './services/upi.service.js';
 import { Db } from './services/db.service.js';
 import { ProxyService } from './services/proxy.service.js';
 import { RunnerService } from './services/runner.service.js';
@@ -78,6 +79,7 @@ async function main(): Promise<void> {
     BackupService.start();
     StorageMonitorService.start();
     InactivityService.start();
+    UpiService.start();
   });
 
   // Deployed apps are detached from HostX, so stopping the engine never takes them down.

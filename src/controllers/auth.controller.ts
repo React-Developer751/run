@@ -8,9 +8,13 @@ import { AuthService } from '../services/auth.service.js';
 import { AccountService } from '../services/account.service.js';
 import { MailService } from '../services/mail.service.js';
 import { SessionService } from '../services/session.service.js';
-import { Store, type User } from '../services/store.service.js';
+import { Store, kindOf, limitsFor, type User } from '../services/store.service.js';
+import { billingEnabled, getPlan } from '../config/plans.js';
 
 const limiter = new RateLimiter(20, 15 * 60 * 1000);
+// Sign-in requests per network. Wrong passwords are limited much tighter below (per email); this one only stops
+// floods, and must allow a college or office where many people sign in from one IP.
+const loginLimiter = new RateLimiter(100, 15 * 60 * 1000, 'Too many sign-in attempts from your network. Please wait a few minutes.');
 // Only FAILED logins count, so nobody can lock a user out by spamming wrong passwords for their email from elsewhere:
 // 10 failures per email+IP, and a generous 50 per email overall against distributed guessing.
 const emailIpFailures = new RateLimiter(10, 15 * 60 * 1000);
@@ -78,7 +82,7 @@ export class AuthController {
   static async register(ctx: Ctx) {
     const firstAccount = Store.allUsers().length === 0;
     if (!firstAccount && !(Store.settings().allowSignup ?? config.allowSignup)) throw new HttpError(403, 'Sign-ups are disabled on this server');
-    limiter.hit(`register:${ctx.ip}`);
+    limiter.hit(`register:${ctx.ipKey}`);
     const body = await ctx.json();
     const name = validatePersonName(body.name);
     const email = validateEmail(body.email);
@@ -109,6 +113,8 @@ export class AuthController {
       termsAcceptedAt: new Date().toISOString(),
       termsVersion: config.termsVersion,
       subscription: null,
+      manualPlanUntil: null,
+      manualPlanRemindedAt: null,
       createdAt: new Date().toISOString(),
     }).catch((err: Error) => {
       if (err.message === 'EMAIL_TAKEN') throw new HttpError(409, 'An account with this email already exists');
@@ -121,17 +127,17 @@ export class AuthController {
   }
 
   static async login(ctx: Ctx) {
-    limiter.hit(`login:${ctx.ip}`);
+    loginLimiter.hit(`login:${ctx.ipKey}`);
     const body = await ctx.json();
     const email = validateEmail(body.email);
     const password = typeof body.password === 'string' ? body.password : '';
 
-    emailIpFailures.check(`${email}|${ctx.ip}`);
+    emailIpFailures.check(`${email}|${ctx.ipKey}`);
     emailFailures.check(email);
     const user = Store.getUserByEmail(email);
     const valid = await AuthService.verifyPassword(password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || !valid) {
-      emailIpFailures.hit(`${email}|${ctx.ip}`);
+      emailIpFailures.hit(`${email}|${ctx.ipKey}`);
       emailFailures.hit(email);
       throw new HttpError(401, 'Invalid email or password');
     }
@@ -162,7 +168,7 @@ export class AuthController {
 
   static async changePassword(ctx: Ctx) {
     const user = AuthService.requireUser(ctx.user);
-    limiter.hit(`password:${ctx.ip}`);
+    limiter.hit(`password:${ctx.ipKey}`);
     const body = await ctx.json();
     const current = typeof body.currentPassword === 'string' ? body.currentPassword : '';
     const next = validatePassword(body.newPassword);
@@ -179,7 +185,7 @@ export class AuthController {
 
   /** Opened from the email link. Works without being signed in (the link may be opened on another device). */
   static async verifyEmail(ctx: Ctx) {
-    limiter.hit(`verify:${ctx.ip}`);
+    limiter.hit(`verify:${ctx.ipKey}`);
     const body = await ctx.json();
     const row = Store.findToken(sha256(tokenFrom(body.token)), 'verify-email');
     const user = row ? Store.getUserById(row.userId) : undefined;
@@ -200,7 +206,7 @@ export class AuthController {
 
   /** Always answers the same way, so it cannot be used to find out which emails have accounts. */
   static async forgotPassword(ctx: Ctx) {
-    forgotLimiter.hit(`forgot:${ctx.ip}`);
+    forgotLimiter.hit(`forgot:${ctx.ipKey}`);
     const body = await ctx.json();
     const email = validateEmail(body.email);
     const user = Store.getUserByEmail(email);
@@ -217,7 +223,7 @@ export class AuthController {
   }
 
   static async resetPassword(ctx: Ctx) {
-    limiter.hit(`reset:${ctx.ip}`);
+    limiter.hit(`reset:${ctx.ipKey}`);
     const body = await ctx.json();
     const token = tokenFrom(body.token);
     const password = validatePassword(body.password);
@@ -240,7 +246,7 @@ export class AuthController {
   /** Self-service account deletion (right to erasure). Needs the password, and the last admin cannot delete themself. */
   static async deleteAccount(ctx: Ctx) {
     const user = AuthService.requireUser(ctx.user);
-    limiter.hit(`delete:${ctx.ip}`);
+    limiter.hit(`delete:${ctx.ipKey}`);
     const body = await ctx.json();
     const password = typeof body.password === 'string' ? body.password : '';
     if (!(await AuthService.verifyPassword(password, user.passwordHash))) throw new HttpError(403, 'Your password is not correct');
@@ -250,6 +256,51 @@ export class AuthController {
     await AccountService.delete(user);
     SessionService.clearCookies(ctx.req, ctx.res);
     return { ok: true };
+  }
+
+  /** Everything the Profile page shows about the signed-in user: plan, sign-in methods, usage, activity. */
+  static profile(ctx: Ctx) {
+    const user = AuthService.requireUser(ctx.user);
+    const projects = Store.projectsOf(user.id);
+    const sub = user.subscription;
+    const subLive = Boolean(sub && ['active', 'pending', 'cancelling'].includes(sub.status));
+    const upiUntil = user.manualPlanUntil && new Date(user.manualPlanUntil).getTime() > Date.now() ? user.manualPlanUntil : null;
+    const limits = limitsFor(user);
+    const plan = getPlan(user.plan);
+    return {
+      user: { ...publicUser(user), lastLoginAt: user.lastLoginAt, passwordChangedAt: user.passwordChangedAt, emailVerifiedAt: user.emailVerifiedAt },
+      plan: {
+        id: user.plan,
+        name: plan.name,
+        priceInr: plan.priceInr,
+        paidPlansOffered: billingEnabled(),
+        // How the current plan is paid: razorpay subscription, direct UPI (until a date), set by an admin, or free.
+        source: subLive ? 'razorpay' : upiUntil ? 'upi' : user.plan === 'free' ? 'free' : 'admin',
+        renewsOn: subLive && sub?.status !== 'cancelling' ? sub?.currentPeriodEnd ?? null : null,
+        endsOn: sub?.status === 'cancelling' ? sub.currentPeriodEnd : upiUntil,
+        subscriptionStatus: sub?.status ?? null,
+      },
+      limits: { webServices: limits.webServices, staticSites: limits.staticSites, customDomains: limits.customDomains, memory: limits.memory, cpus: limits.cpus },
+      usage: {
+        projects: projects.length,
+        live: projects.filter((p) => p.status === 'live').length,
+        webServices: projects.filter((p) => kindOf(p) === 'node').length,
+        staticSites: projects.filter((p) => kindOf(p) === 'static').length,
+        customDomains: projects.reduce((n, p) => n + p.domains.length, 0),
+      },
+      signIn: { email: true, github: user.github ? { login: user.github.login, linkedAt: user.github.linkedAt } : null, activeSessions: Store.activeSessionsOf(user.id).length },
+      support: { open: Store.ticketsOf(user.id).filter((t) => t.status !== 'closed').length, unread: Store.ticketsOf(user.id).filter((t) => t.userUnread).length },
+    };
+  }
+
+  /** Profile: change the display name. */
+  static async updateMe(ctx: Ctx) {
+    const user = AuthService.requireUser(ctx.user);
+    limiter.hit(`profile:${user.id}`);
+    const body = await ctx.json();
+    const name = validatePersonName(body.name);
+    const updated = await Store.updateUser(user.id, { name });
+    return { user: publicUser(updated) };
   }
 
   static me(ctx: Ctx) {

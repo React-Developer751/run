@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { config } from '../config/index.js';
-import { billingEnabled, getPlan, razorpayPlanId, type PlanId } from '../config/plans.js';
+import { billingEnabled, getPlan, razorpayActive, razorpayPlanId, type PlanId } from '../config/plans.js';
 import { HttpError } from '../utils/http.js';
 import { logger } from '../utils/logger.js';
 import { RunnerService } from './runner.service.js';
@@ -27,7 +27,7 @@ export class BillingService {
   }
 
   private static requireEnabled(): void {
-    if (!this.enabled()) throw new HttpError(503, 'Billing is not enabled on this server');
+    if (!razorpayActive()) throw new HttpError(503, 'Card / Razorpay payments are not enabled on this server');
   }
 
   private static async api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
@@ -57,8 +57,9 @@ export class BillingService {
     return null;
   }
 
-  /** Paid plans that can be bought (have a Razorpay plan id). */
+  /** Paid plans that can be bought through Razorpay (switched on and with a Razorpay plan id). */
   static purchasable(): PlanId[] {
+    if (!razorpayActive()) return [];
     return (['starter', 'pro'] as PlanId[]).filter((p) => this.planIdFor(p));
   }
 
@@ -69,6 +70,9 @@ export class BillingService {
     const planId = this.planIdFor(plan);
     if (!planId) throw new HttpError(400, 'That plan is not available');
 
+    if (user.manualPlanUntil && new Date(user.manualPlanUntil).getTime() > Date.now()) {
+      throw new HttpError(409, `Your plan is paid by UPI until ${new Date(user.manualPlanUntil).toDateString()}. You can switch to an automatic subscription after that.`);
+    }
     const sub = user.subscription;
     if (sub?.status === 'cancelling') {
       // The paid period is still running on the old subscription; a second one would be billed in parallel.

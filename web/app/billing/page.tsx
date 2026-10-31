@@ -3,9 +3,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Nav } from '@/components/Nav';
 import { PlanCards, memoryLabel } from '@/components/PlanCards';
+import { UpiPayModal } from '@/components/UpiPayModal';
 import { api } from '@/lib/api';
 import { useRequireAuth } from '@/lib/auth';
 import type { BillingInfo, Plan } from '@/lib/types';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 const STATUS_TEXT: Record<string, string> = {
   created: 'Waiting for your payment',
@@ -24,12 +26,14 @@ function Usage({ label, used, max }: { label: string; used: number; max: number 
 }
 
 export default function BillingPage() {
+  const confirm = useConfirm();
   const user = useRequireAuth();
   const [info, setInfo] = useState<BillingInfo | null>(null);
   const [plans, setPlans] = useState<Plan[]>([]);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [note, setNote] = useState('');
+  const [upiPlan, setUpiPlan] = useState<Plan | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -81,7 +85,14 @@ export default function BillingPage() {
   };
 
   const cancel = async () => {
-    if (!window.confirm('Cancel your subscription? You keep your plan until the end of the paid period, then move to Free.')) return;
+    const ok = await confirm({
+      title: sub?.status === 'created' ? 'Discard this payment?' : 'Cancel your subscription?',
+      message: sub?.status === 'created' ? 'The unpaid checkout is cancelled. You stay on your current plan.' : 'Nothing is charged again. You keep your plan until the end of the period you paid for, then move to Free. Your apps are not deleted.',
+      confirmLabel: sub?.status === 'created' ? 'Discard' : 'Cancel subscription',
+      cancelLabel: 'Keep it',
+      danger: true,
+    });
+    if (!ok) return;
     setBusy('cancel');
     setError('');
     try {
@@ -96,6 +107,14 @@ export default function BillingPage() {
 
   const sub = info?.subscription ?? null;
   const currentName = plans.find((p) => p.id === info?.plan)?.name ?? info?.plan;
+  const subLive = Boolean(sub && ['created', 'active', 'pending', 'cancelling'].includes(sub.status));
+  const upiPaidUntil = info?.upi.paidUntil ?? null;
+  const upiPending = info?.upi.payments.find((p) => p.status === 'pending') ?? null;
+  const upi = info?.methods.upi ?? null;
+  const methodText = [info?.methods.razorpay ? 'card, UPI AutoPay or netbanking via Razorpay (renews automatically)' : '', upi ? 'direct UPI (one month at a time, verified by our team)' : '']
+    .filter(Boolean)
+    .join(', or ');
+  const PAYMENT_STATUS: Record<string, string> = { pending: 'Being verified', approved: 'Approved', rejected: 'Rejected' };
 
   return (
     <>
@@ -138,8 +157,21 @@ export default function BillingPage() {
                       )}
                     </div>
                   </>
+                ) : upiPaidUntil ? (
+                  <>
+                    <div>Paid by UPI until <b>{new Date(upiPaidUntil).toLocaleDateString()}</b></div>
+                    <div className="muted" style={{ fontSize: 13.5 }}>UPI payments do not renew automatically. Pay again before that date to continue; the new month starts when this one ends.</div>
+                    {upi && !upiPending && (
+                      <div><button className="btn btn-primary" disabled={busy !== ''} onClick={() => setUpiPlan(plans.find((p) => p.id === info.plan) ?? null)}>Renew by UPI</button></div>
+                    )}
+                  </>
                 ) : (
-                  <div className="muted">No paid subscription. Upgrade below — payment by UPI, card or netbanking via Razorpay. Invoices are emailed by Razorpay.</div>
+                  <div className="muted">No paid plan. Upgrade below. {methodText ? `Pay by ${methodText}.` : ''}</div>
+                )}
+                {upiPending && (
+                  <div className="notice-box">
+                    Your UPI payment of ₹{upiPending.amountInr.toLocaleString('en-IN')} (UTR <span className="mono">{upiPending.utr}</span>) is being verified. You get an email when it is approved.
+                  </div>
                 )}
               </div>
             </div>
@@ -148,16 +180,66 @@ export default function BillingPage() {
               plans={plans}
               current={info.plan}
               action={(p) => {
-                if (p.id === info.plan) return <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled>Current plan</button>;
+                if (p.id === info.plan && !(upiPaidUntil && upi)) return <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled>Current plan</button>;
                 if (p.id === 'free') return sub && sub.status !== 'cancelling' ? <button className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={busy !== ''} onClick={cancel}>Downgrade (cancel)</button> : null;
+                const verb = p.id === info.plan ? 'Renew' : info.plan === 'free' ? `Upgrade to ${p.name}` : `Switch to ${p.name}`;
+                // Only the methods the admin switched on; one way of paying at a time.
+                const viaRazorpay = info.methods.razorpay && info.methods.razorpayPlans.includes(p.id) && !upiPaidUntil;
+                const viaUpi = Boolean(upi) && !subLive && p.priceInr > 0;
+                if (!viaRazorpay && !viaUpi) return null;
                 return (
-                  <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={busy !== '' || sub?.status === 'cancelling'} onClick={() => choose(p)}>
-                    {busy === p.id ? <span className="spinner" /> : info.plan === 'free' ? `Upgrade to ${p.name}` : `Switch to ${p.name}`}
-                  </button>
+                  <div className="pay-actions">
+                    {viaRazorpay && (
+                      <button className="btn btn-primary" disabled={busy !== '' || sub?.status === 'cancelling'} onClick={() => choose(p)}>
+                        {busy === p.id ? <span className="spinner" /> : viaUpi ? `${verb} · card / AutoPay` : verb}
+                      </button>
+                    )}
+                    {viaUpi && (
+                      <button className={`btn ${viaRazorpay ? '' : 'btn-primary'}`} disabled={busy !== '' || Boolean(upiPending)} title={upiPending ? 'Your last UPI payment is still being verified' : undefined} onClick={() => setUpiPlan(p)}>
+                        {upiPending ? 'UPI payment being verified' : viaRazorpay ? 'Pay by UPI (manual)' : `${verb} · pay by UPI`}
+                      </button>
+                    )}
+                  </div>
                 );
               }}
             />
+            {info.upi.payments.length > 0 && (
+              <div className="card table-card" style={{ marginTop: 28 }}>
+                <table className="table">
+                  <thead><tr><th>UPI payment</th><th>Plan</th><th>Amount</th><th>UTR</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {info.upi.payments.map((p) => (
+                      <tr key={p.id}>
+                        <td>{new Date(p.createdAt).toLocaleDateString()}</td>
+                        <td>{plans.find((x) => x.id === p.plan)?.name ?? p.plan}</td>
+                        <td>₹{p.amountInr.toLocaleString('en-IN')}</td>
+                        <td className="mono">{p.utr}</td>
+                        <td>
+                          <span className={`badge ${p.status === 'approved' ? 'badge-live' : p.status === 'rejected' ? 'badge-bad' : 'badge-busy'}`}>{PAYMENT_STATUS[p.status]}</span>
+                          {p.reason && <small className="dim" style={{ display: 'block', marginTop: 4, whiteSpace: 'normal' }}>{p.reason}</small>}
+                          {p.paidUntil && <small className="dim" style={{ display: 'block', marginTop: 4 }}>until {new Date(p.paidUntil).toLocaleDateString()}</small>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </>
+        )}
+        {upiPlan && upi && info && (
+          <UpiPayModal
+            plan={upiPlan}
+            upi={upi}
+            periodDays={info.upi.periodDays}
+            reference={user.id.slice(-6)}
+            onClose={() => setUpiPlan(null)}
+            onDone={() => {
+              setUpiPlan(null);
+              setNote('Thanks! Your UPI payment was submitted. We verify it and email you when your plan is active.');
+              void load();
+            }}
+          />
         )}
       </main>
     </>

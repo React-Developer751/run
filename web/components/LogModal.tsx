@@ -36,7 +36,7 @@ export function LogModal({ projectId, deploymentId, title, onClose }: { projectI
         if (r.status === 'live' || r.status === 'failed') return;
       } catch (e) {
         const status = (e as { status?: number }).status ?? 0;
-        if (status >= 400 && status < 500) {
+        if (status >= 400 && status < 500 && status !== 429) {
           if (!cancelled) setLines((p) => [...p, `[${brandSlug(siteName)}] Could not load the log: ${(e as Error).message}`]);
           return;
         }

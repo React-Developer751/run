@@ -9,6 +9,7 @@ import { Icon } from './Icon';
 import { Nav } from './Nav';
 import { PasswordInput } from './PasswordInput';
 import { useSiteName } from './BrandProvider';
+import { safeNext } from '@/lib/next-path';
 
 const GITHUB_ERRORS: Record<string, string> = {
   expired: 'The GitHub sign-in took too long or was opened in another browser. Please try again.',
@@ -40,9 +41,16 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
   }, []);
   const isLogin = mode === 'login';
 
+  // ?next=/billing: where to continue after signing in (only paths on this site).
+  const [next, setNext] = useState<string | null>(null);
   useEffect(() => {
-    if (!loading && user) router.replace('/dashboard');
-  }, [loading, user, router]);
+    setNext(safeNext(new URLSearchParams(window.location.search).get('next')));
+  }, []);
+  const withNext = (path: string) => (next ? `${path}?next=${encodeURIComponent(next)}` : path);
+
+  useEffect(() => {
+    if (!loading && user) router.replace(next ?? '/dashboard');
+  }, [loading, user, router, next]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -51,7 +59,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
     try {
       if (isLogin) await signIn(email, password);
       else await signUp(name, email, password);
-      router.replace('/dashboard');
+      router.replace(next ?? '/dashboard');
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);
@@ -130,9 +138,9 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
 
           <p className="auth-foot">
             {isLogin ? (
-              <>New to {siteName}? <Link href="/register">Create an account</Link></>
+              <>New to {siteName}? <Link href={withNext('/register')}>Create an account</Link></>
             ) : (
-              <>Already have an account? <Link href="/login">Sign in</Link></>
+              <>Already have an account? <Link href={withNext('/login')}>Sign in</Link></>
             )}
           </p>
         </div>

@@ -68,9 +68,12 @@ export default async function TermsPage() {
 
       <h2>5. Payments</h2>
       <ul>
-        <li>Paid plans are billed monthly in advance in Indian Rupees through our payment partner Razorpay. Taxes are added as applicable.</li>
-        <li>Subscriptions renew automatically until cancelled. You can cancel at any time from the Billing page; see the <Link href="/refund-policy">Cancellation &amp; Refund Policy</Link>.</li>
-        <li>If a renewal payment fails and is not resolved, your account moves to the Free plan and its limits apply.</li>
+        <li>Anyone can view our plans; buying one requires a registered, signed-in account. Prices are in Indian Rupees, payable monthly in advance; taxes are added as applicable.</li>
+        <li>Depending on what we offer at the time, you pay either through our payment partner Razorpay (card, UPI AutoPay, netbanking) or by a direct UPI transfer to the UPI ID shown on the Billing page.</li>
+        <li>Razorpay subscriptions renew automatically until cancelled; you can cancel at any time from the Billing page. If a renewal payment fails and is not resolved, your account moves to the Free plan and its limits apply.</li>
+        <li>A direct UPI payment covers one month from activation and does not renew automatically. Your plan is activated after we match the reference number (UTR) you enter with our account statement. Paying again before the month ends adds another month; otherwise your account moves to the Free plan when it ends.</li>
+        <li>Submitting a reference number for a payment that was not made, or someone else&apos;s, is a breach of these Terms and may lead to suspension.</li>
+        <li>See the <Link href="/refund-policy">Cancellation &amp; Refund Policy</Link> for cancellations and refunds.</li>
       </ul>
 
       <h2>6. Availability and changes</h2>
@@ -81,7 +84,7 @@ export default async function TermsPage() {
 
       <h2>7. Termination</h2>
       <p>
-        You may delete your account at any time from the Account page; this permanently deletes your applications and data on {siteName}. We may
+        You may delete your account at any time from the Account page; this immediately and permanently deletes your applications and data on {siteName} and ends any paid plan (unused days are not refunded except as the Refund Policy says). We may
         suspend or terminate accounts for breach of these Terms, non-payment, or legal requirements. Where we discontinue the Service as a
         whole we will give at least 30 days&apos; notice so you can export your data.
       </p>

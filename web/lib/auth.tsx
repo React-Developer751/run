@@ -81,7 +81,8 @@ export function useRequireAuth(): User | null {
   const { user, loading } = useAuth();
   const router = useRouter();
   useEffect(() => {
-    if (!loading && !user) router.replace('/login');
+    // Come back here after signing in (e.g. /billing from a pricing button).
+    if (!loading && !user) router.replace(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
   }, [loading, user, router]);
   return user;
 }

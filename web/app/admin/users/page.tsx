@@ -8,8 +8,10 @@ import { useAuth } from '@/lib/auth';
 import { shortDay, timeAgo } from '@/lib/format';
 import { usePoll, useToast } from '@/lib/hooks';
 import type { AdminUser } from '@/lib/types';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 export default function AdminUsers() {
+  const confirm = useConfirm();
   const { user: me } = useAuth();
   const { data, error, reload } = usePoll(() => api.admin.users(), 10000);
   const { toast, flash } = useToast();
@@ -69,9 +71,9 @@ export default function AdminUsers() {
                       disabled={busy !== ''}
                       aria-label={`Plan of ${u.email}`}
                       title={u.subscriptionStatus ? `Razorpay subscription: ${u.subscriptionStatus}` : 'No paid subscription'}
-                      onChange={(e) => {
+                      onChange={async (e) => {
                         const plan = e.target.value as AdminUser['plan'];
-                        if (!window.confirm(`Set ${u.email} to the ${plan} plan? This does not charge or refund anything.`)) return;
+                        if (!(await confirm({ title: `Change plan to ${plan}?`, message: `${u.email} gets the ${plan} plan with no end date. This does not charge or refund anything.`, confirmLabel: 'Change plan' }))) return;
                         void act(`p${u.id}`, () => api.admin.updateUser(u.id, { plan }), 'Plan updated');
                       }}
                     >
@@ -86,20 +88,34 @@ export default function AdminUsers() {
                   <td className="muted">{shortDay(u.createdAt)}</td>
                   <td>
                     <div className="row-actions">
-                      <button className="icon-btn" title={u.role === 'admin' ? 'Remove admin rights' : 'Make admin'} aria-label={u.role === 'admin' ? 'Remove admin rights' : 'Make admin'} disabled={self || busy !== ''} onClick={() => act(`r${u.id}`, () => api.admin.updateUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' }), u.role === 'admin' ? 'Admin removed' : 'Promoted to admin')}>
+                      <button className="icon-btn" title={u.role === 'admin' ? 'Remove admin rights' : 'Make admin'} aria-label={u.role === 'admin' ? 'Remove admin rights' : 'Make admin'} disabled={self || busy !== ''} onClick={async () => {
+                        const promote = u.role !== 'admin';
+                        const ok = await confirm({
+                          title: promote ? `Make ${u.email} an admin?` : `Remove admin rights from ${u.email}?`,
+                          message: promote ? 'Admins can see every user and project, change settings, approve payments and delete accounts.' : 'They keep their account and projects but lose access to the admin area.',
+                          confirmLabel: promote ? 'Make admin' : 'Remove admin',
+                          danger: !promote,
+                        });
+                        if (ok) void act(`r${u.id}`, () => api.admin.updateUser(u.id, { role: promote ? 'admin' : 'user' }), promote ? 'Promoted to admin' : 'Admin removed');
+                      }}>
                         <Icon name="shield" />
                       </button>
                       <button className="icon-btn" title="Set project limit" aria-label="Set project limit" disabled={busy !== ''} onClick={() => { setQuota(u); setQuotaValue(u.maxProjects === null ? '' : String(u.maxProjects)); }}>
                         <Icon name="sliders" />
                       </button>
-                      <button className="icon-btn" title={u.suspended ? 'Reactivate account' : 'Suspend account'} aria-label={u.suspended ? 'Reactivate account' : 'Suspend account'} disabled={self || busy !== ''} onClick={() => {
-                        if (!u.suspended && !window.confirm(`Suspend ${u.email}? Their apps go offline and they are signed out.`)) return;
+                      <button className="icon-btn" title={u.suspended ? 'Reactivate account' : 'Suspend account'} aria-label={u.suspended ? 'Reactivate account' : 'Suspend account'} disabled={self || busy !== ''} onClick={async () => {
+                        const ok = await confirm(
+                          u.suspended
+                            ? { title: `Reactivate ${u.email}?`, message: 'They can sign in again. Their apps stay stopped until they start them.', confirmLabel: 'Reactivate' }
+                            : { title: `Suspend ${u.email}?`, message: 'All their apps go offline and they are signed out everywhere. Nothing is deleted.', confirmLabel: 'Suspend account', danger: true },
+                        );
+                        if (!ok) return;
                         void act(`s${u.id}`, () => api.admin.updateUser(u.id, { suspended: !u.suspended }), u.suspended ? 'Account reactivated' : 'Account suspended');
                       }}>
                         <Icon name={u.suspended ? 'play' : 'stop'} />
                       </button>
                       <button className="icon-btn" title="Reset password" aria-label="Reset password" disabled={self || busy !== ''} onClick={async () => {
-                        if (!window.confirm(`Reset the password of ${u.email}? They will be signed out everywhere.`)) return;
+                        if (!(await confirm({ title: `Reset the password of ${u.email}?`, message: 'A temporary password is shown once, and they are signed out everywhere.', confirmLabel: 'Reset password', danger: true }))) return;
                         setBusy(`p${u.id}`);
                         setActionError('');
                         try {
@@ -113,8 +129,9 @@ export default function AdminUsers() {
                       }}>
                         <Icon name="key" />
                       </button>
-                      <button className="icon-btn" title="Delete user and their projects" aria-label={`Delete ${u.email}`} disabled={self || busy !== ''} onClick={() => {
-                        if (window.confirm(`Delete ${u.email} and ALL of their projects? This cannot be undone.`)) void act(`d${u.id}`, () => api.admin.deleteUser(u.id), 'User deleted');
+                      <button className="icon-btn" title="Delete user and their projects" aria-label={`Delete ${u.email}`} disabled={self || busy !== ''} onClick={async () => {
+                        const ok = await confirm({ title: `Delete ${u.email}?`, message: 'The account and ALL of its projects, domains and logs are deleted permanently and any subscription is cancelled. This cannot be undone.', confirmLabel: 'Delete user', danger: true });
+                        if (ok) void act(`d${u.id}`, () => api.admin.deleteUser(u.id), 'User deleted');
                       }}><Icon name="trash" /></button>
                     </div>
                   </td>

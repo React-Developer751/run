@@ -26,5 +26,8 @@ export function registerAdminRoutes(router: Router): void {
   router.get('/api/admin/notifications', AdminController.notifications);
   router.post('/api/admin/notifications/read', AdminController.readNotifications);
   router.get('/api/admin/storage', AdminController.storage);
+  router.get('/api/admin/payments', AdminController.payments);
+  router.post('/api/admin/payments/:id/approve', AdminController.approvePayment);
+  router.post('/api/admin/payments/:id/reject', AdminController.rejectPayment);
   router.post('/api/admin/storage/check', AdminController.checkStorage);
 }

@@ -5,10 +5,12 @@ import { Stars } from '@/components/FeedbackPrompt';
 import { api } from '@/lib/api';
 import { shortDate, timeAgo } from '@/lib/format';
 import { usePoll, useToast } from '@/lib/hooks';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 type Filter = 'all' | 'featured' | 'shareable' | 'low';
 
 export default function AdminFeedback() {
+  const confirm = useConfirm();
   const { data, error, reload } = usePoll(() => api.admin.feedback(), 30_000);
   const [filter, setFilter] = useState<Filter>('all');
   const [busy, setBusy] = useState('');
@@ -106,7 +108,7 @@ export default function AdminFeedback() {
                   className="link-btn"
                   style={{ color: 'var(--bad)' }}
                   disabled={busy !== ''}
-                  onClick={() => window.confirm('Delete this feedback permanently?') && void run(`d${f.id}`, () => api.admin.deleteFeedback(f.id), 'Feedback deleted')}
+                  onClick={async () => (await confirm({ title: 'Delete this feedback?', message: 'It is removed permanently, also from the landing page.', confirmLabel: 'Delete', danger: true })) && void run(`d${f.id}`, () => api.admin.deleteFeedback(f.id), 'Feedback deleted')}
                 >
                   Delete
                 </button>

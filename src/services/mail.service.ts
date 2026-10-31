@@ -207,6 +207,25 @@ export class MailService {
     return this.send({ to, subject: `[${siteName()}] ${title}`, ...body });
   }
 
+  /** Sent after an account is deleted: proof for the user, and an alarm if they did not do it. */
+  static accountDeleted(to: string, name: string, byAdmin: boolean): Promise<boolean> {
+    const site = siteName();
+    const how = byAdmin ? `was deleted by the ${site} administrators` : 'was deleted at your request';
+    const body = layout(
+      `Your ${site} account was deleted`,
+      `Hi ${name}, your ${site} account ${how}. Your apps, environment variables, custom domains, logs, support requests and feedback have been removed, and any subscription was cancelled. Payment records are kept as tax law requires.`,
+      { label: `Open ${site}`, url: config.dashboardUrl },
+      byAdmin ? 'If you think this is a mistake, reply to this email.' : 'If you did not do this, reply to this email right away.',
+    );
+    return this.send({ to, subject: `[${site}] Your account was deleted`, ...body });
+  }
+
+  /** Plan and payment news for a user (UPI payment approved/rejected, plan ending). */
+  static billingNotice(to: string, name: string, title: string, message: string, url: string): Promise<boolean> {
+    const body = layout(title, `Hi ${name}, ${message}`, { label: 'Open billing', url }, `You receive this because you have a ${siteName()} account.`);
+    return this.send({ to, subject: `[${siteName()}] ${title}`, ...body });
+  }
+
   /** Platform alert for administrators (failed deploys, storage running out). */
   static adminAlert(to: string, title: string, message: string, url: string, label = 'Open admin notifications'): Promise<boolean> {
     const body = layout(title, message, { label, url }, `You receive this because you are a ${siteName()} administrator.`);

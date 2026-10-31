@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { AdminPlan, EditablePlan, PlanId, SettingsPatch } from '@/lib/types';
+import { useConfirm } from './ConfirmProvider';
 
 type Form = Record<keyof EditablePlan, string>;
 
@@ -49,6 +50,7 @@ const FIELDS: Array<{ key: keyof EditablePlan; label: string; hint?: string; fre
 
 /** Admin → Settings: edit the limits and prices of every plan without touching the server. */
 export function PlanEditor({ plans, busy, onSave }: { plans: AdminPlan[]; busy: boolean; onSave: (patch: SettingsPatch, done: string) => Promise<boolean> }) {
+  const confirm = useConfirm();
   const [active, setActive] = useState<PlanId>('free');
   const plan = plans.find((p) => p.id === active) ?? plans[0];
   const [form, setForm] = useState<Form | null>(null);
@@ -64,9 +66,9 @@ export function PlanEditor({ plans, busy, onSave }: { plans: AdminPlan[]; busy: 
   const diff = changes(form, plan);
   const dirty = Object.keys(diff).length > 0;
   const invalid = FIELDS.find((f) => !f.key.endsWith('Days') && f.key !== 'razorpayPlanId' && !(plan.id === 'free' && f.key === 'priceInr') && form[f.key].trim() === '');
-  const pick = (id: PlanId) => {
+  const pick = async (id: PlanId) => {
     if (id === active) return;
-    if (dirty && !window.confirm(`Discard your unsaved changes to ${plan.name}?`)) return;
+    if (dirty && !(await confirm({ title: 'Discard unsaved changes?', message: `Your changes to ${plan.name} are not saved yet.`, confirmLabel: 'Discard', danger: true }))) return;
     setActive(id);
   };
   const lowered = (['webServices', 'staticSites', 'customDomains'] as const).some((k) => diff[k] !== undefined && Number(diff[k]) < plan[k]);
@@ -128,7 +130,7 @@ export function PlanEditor({ plans, busy, onSave }: { plans: AdminPlan[]; busy: 
           <button
             className="btn"
             disabled={busy}
-            onClick={() => window.confirm(`Reset ${plan.name} to the server defaults?`) && void onSave({ resetPlan: plan.id }, `${plan.name} reset to defaults`)}
+            onClick={async () => (await confirm({ title: `Reset ${plan.name} to the defaults?`, message: 'Every value you changed for this plan goes back to the server defaults. Running apps are resized if RAM/CPU change.', confirmLabel: 'Reset plan', danger: true })) && void onSave({ resetPlan: plan.id }, `${plan.name} reset to defaults`)}
           >
             Reset to defaults
           </button>
